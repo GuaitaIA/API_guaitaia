@@ -9,11 +9,11 @@ from fastapi import UploadFile
 
 
 # Cargar variables de entorno
-load_dotenv()
+load_dotenv() 
 
 # Cargar el modelo YOLO
 try:
-    model = YOLO(os.getenv("MODEL"))
+    model = YOLO(os.getenv("MODELO"))
 except Exception as e:
     raise Exception(f"Error al cargar el modelo: {e}")
 
@@ -25,7 +25,7 @@ def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu: int)
             
             device = "cpu" if cpu == 1 else None
             
-            results = model.predict(input_image, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device)
+            results = model.predict(input_image, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
             results = results[0].boxes.numpy()
 
         if results.conf.size > 0:

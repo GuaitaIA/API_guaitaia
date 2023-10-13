@@ -6,7 +6,7 @@ from datetime import datetime
 from PIL import Image
 from typing import List
 
-import funcs as fc
+import funcs as fc 
 
 app = FastAPI()
 
