@@ -68,13 +68,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 tags_metadata = [
     {
+        "name": "Authenticate",
+        "description": "Authenticate users."
+    },
+    {
         "name": "Individual detection",
-        "description": "Process images individually."
+        "description": "Process images one by one."
     },
     {
         "name": "Multiple detection",
-        "description": "Process images multiple ways."
-    },
+        "description": "Process multiple images at once."
+    }
 ]
 
 app = FastAPI(
