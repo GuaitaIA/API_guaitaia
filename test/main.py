@@ -57,14 +57,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-EXTENSIONES_PERMITIDAS = {"jpg", "jpeg", "png"}
 
-def validar_extension(filename: str) -> bool:
-    try:
-        nombre, extension = filename.rsplit('.', 1)
-        return extension.lower() in EXTENSIONES_PERMITIDAS
-    except ValueError:
-        return False
 
 @app.get("/")
 async def root():
@@ -124,7 +117,7 @@ async def detectar_incendio(
     iou: float = Form(...),
     cpu: int = Form(...)
 ):
-    if not validar_extension(imagen.filename):
+    if not fc.validar_extension(imagen.filename):
         raise HTTPException(status_code=400, detail="Formato de imagen no permitido")
 
     try:
@@ -153,7 +146,7 @@ async def detectar_incendios_multiples(
     cpu: int = Form(...)
 ):
     for imagen in imagenes:
-        if not validar_extension(imagen.filename):
+        if not fc.validar_extension(imagen.filename):
             raise HTTPException(status_code=400, detail="Formato de imagen no permitido")
     
     try:

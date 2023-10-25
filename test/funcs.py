@@ -22,6 +22,7 @@ from fastapi import Depends, HTTPException, status
 SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1
+EXTENSIONES_PERMITIDAS = {"jpg", "jpeg", "png"}
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -158,10 +159,16 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         raise credentials_exception
     return user
 
-
 async def get_current_active_user(
     current_user: Annotated[mod.User, Depends(get_current_user)]
 ):
     if current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
+def validar_extension(filename: str) -> bool:
+    try:
+        nombre, extension = filename.rsplit('.', 1)
+        return extension.lower() in EXTENSIONES_PERMITIDAS
+    except ValueError:
+        return False
