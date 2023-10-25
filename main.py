@@ -14,7 +14,7 @@ from PIL import Image
 import funcs as fc 
 import models as mod
 
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:postgres@localhost:5433/guaitaia"
+SQLALCHEMY_DATABASE_URL = "postgresql://postgres:1234@localhost:5432/guaitaiadb"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
@@ -79,7 +79,7 @@ async def login_for_access_token(
             detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    access_token_expires = timedelta(minutes=fc.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(weeks=fc.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = fc.create_access_token(
         data={"sub": user.email}, expires_delta=access_token_expires
     )
