@@ -17,18 +17,20 @@ from jose import JWTError, jwt
 from typing import Annotated
 from fastapi import Depends, HTTPException, status
 
+# Cargar variables de entorno
+load_dotenv() 
+
 # to get a string like this run:
 # openssl rand -hex 32
-SECRET_KEY = "09d25e094faa6ca2556c818166b7a9563b93f7099f6f0f4caa6cf63b88e8d3e7"
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 1
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
 EXTENSIONES_PERMITIDAS = {"jpg", "jpeg", "png"}
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
-# Cargar variables de entorno
-load_dotenv() 
+
 
 # Cargar el modelo YOLO
 try:
@@ -102,12 +104,13 @@ def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int
 async def get_database_connection():
     conn = await asyncpg.connect(
         user="postgres",
-        password="postgres",
-        database="guaitaia",
+        password="1234",
+        database="guaitaiadb",
         host="localhost",
-        port="5433"
+        port="5432"
     )
     return conn
+
 async def get_user_from_db(email: str):
     conn = await get_database_connection()
     try:
