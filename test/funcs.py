@@ -108,11 +108,11 @@ async def get_database_connection():
         port="5433"
     )
     return conn
-async def get_user_from_db(username: str):
+async def get_user_from_db(email: str):
     conn = await get_database_connection()
     try:
         query = "SELECT * FROM users WHERE email = $1"
-        user_record = await conn.fetchrow(query, username)
+        user_record = await conn.fetchrow(query, email)
         if user_record:
             return mod.User(**user_record)
         return None
@@ -122,8 +122,8 @@ async def get_user_from_db(username: str):
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
 
-async def authenticate_user(username: str, password: str):
-    user = await get_user_from_db(username)
+async def authenticate_user(email: str, password: str):
+    user = await get_user_from_db(email)
     if not user:
         return False
     if not verify_password(password, user.hashed_password):
@@ -148,13 +148,13 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        username: str = payload.get("sub")
-        if username is None:
+        email: str = payload.get("sub")
+        if email is None:
             raise credentials_exception
-        token_data = mod.TokenData(username=username)
+        token_data = mod.TokenData(email=email)
     except JWTError:
         raise credentials_exception
-    user = get_user_from_db(username=token_data.username)
+    user = get_user_from_db(email=token_data.email)
     if user is None:
         raise credentials_exception
     return user

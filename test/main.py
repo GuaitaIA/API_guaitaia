@@ -62,7 +62,6 @@ app.add_middleware(
 @app.get("/")
 async def root():
     user = await fc.get_user_from_db("admin@admin.com")
-    print(user)
     return user
 
 @app.post(
@@ -73,16 +72,16 @@ async def root():
 async def login_for_access_token(
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ):
-    user = fc.authenticate_user(form_data.username, form_data.password)
+    user = await fc.authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Incorrect email or password",
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token_expires = timedelta(minutes=fc.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = fc.create_access_token(
-        data={"sub": user.username}, expires_delta=access_token_expires
+        data={"sub": user.email}, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
 
