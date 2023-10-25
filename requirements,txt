@@ -1,6 +1,0 @@
-ultralytics
-fastapi
-typing
-uvicorn
-python-jose[cryptography]
-passlib[bcrypt]

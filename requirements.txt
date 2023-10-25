@@ -7,3 +7,4 @@ passlib[bcrypt]
 asyncpg 
 sqlalchemy 
 alembic
+psycopg2
