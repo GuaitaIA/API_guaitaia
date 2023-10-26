@@ -128,7 +128,6 @@ async def detectar_incendio(
     try:
         image = Image.open(imagen.file)
         detecciones, valor_confianza, nombre_resultado = fc.procesar_imagen(image, confianza, iou, cpu)
-        print(detecciones)
         if detecciones == True:
             await fc.insert_results(current_user, 'simple', 1, 0)
         else:

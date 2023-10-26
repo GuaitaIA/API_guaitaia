@@ -184,8 +184,6 @@ def validar_extension(filename: str) -> bool:
         return False
     
 async def insert_results(user: mod.User, type: str, detections: int, not_detections: int):
-    print(detections)
-    print(not_detections)
     dateTime = datetime.now()
     conn = await get_database_connection()
     try:
