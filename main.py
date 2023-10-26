@@ -109,7 +109,7 @@ async def create_user(
     try:
         await fc.create_user(email, password, role)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al crear el usuario: {e}")
+        raise HTTPException(status_code=400, detail=f"Error al crear el usuario: {e}")
 
     return {
         "email": email,

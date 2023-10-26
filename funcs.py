@@ -196,6 +196,9 @@ async def insert_results(user: mod.User, type: str, detections: int, not_detecti
 async def create_user(email: str, password: str, role: str):
     hashed_password = pwd_context.hash(password)
     conn = await get_database_connection()
+    user = await get_user_from_db(email)
+    if user:
+        raise HTTPException(status_code=400, detail="Email already registered")
     try:
         query = "INSERT INTO users (email, hashed_password, role, is_active) VALUES ($1, $2, $3, $4)"
         await conn.execute(query, email, hashed_password, role, True)
