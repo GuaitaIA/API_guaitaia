@@ -17,6 +17,8 @@ from jose import JWTError, jwt
 from typing import Annotated
 from fastapi import Depends, HTTPException, status
 
+import bcrypt
+
 # Cargar variables de entorno
 load_dotenv() 
 
@@ -29,8 +31,6 @@ EXTENSIONES_PERMITIDAS = {"jpg", "jpeg", "png"}
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-
-
 
 # Cargar el modelo YOLO
 try:
@@ -192,3 +192,25 @@ async def insert_results(user: mod.User, type: str, detections: int, not_detecti
     finally:
         await conn.close()
     return user.email
+
+async def create_user(email: str, password: str, role: str):
+    hashed_password = pwd_context.hash(password)
+    conn = await get_database_connection()
+    try:
+        query = "INSERT INTO users (email, hashed_password, role, is_active) VALUES ($1, $2, $3, $4)"
+        await conn.execute(query, email, hashed_password, role, True)
+    finally:
+        await conn.close()
+    return email
+
+async def update_password(user: mod.User, password: str):
+    hashed_password = pwd_context.hash(password)
+    conn = await get_database_connection()
+    try:
+        query = "UPDATE users SET hashed_password = $1 WHERE id = $2"
+        await conn.execute(query, hashed_password, user.id)
+    finally:
+        await conn.close()
+    return user.email
+
+    

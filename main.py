@@ -34,6 +34,10 @@ tags_metadata = [
         "description": "Authenticate users."
     },
     {
+        "name": "User",
+        "description": "Create and update users."
+    },
+    {
         "name": "Individual detection",
         "description": "Process images one by one."
     },
@@ -92,6 +96,37 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 app.mount("/imagenes", StaticFiles(directory="Resultados"), name="imagenes")
+
+@app.post("/create", tags=["User"])
+async def create_user(
+    current_user: Annotated[mod.User, Depends(fc.get_current_user_is_superadmin)],
+    email: str = Form(...),
+    password: str = Form(...),
+    role: str = Form(...)
+):
+    try:
+        await fc.create_user(email, password, role)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al crear el usuario: {e}")
+
+    return {
+        "email": email,
+        "role": role,
+    }
+
+@app.patch("/password", tags=["User"])
+async def update_password(
+    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
+    password: str = Form(...)
+):
+    try:
+        await fc.update_password(current_user, password)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al actualizar la contraseña: {e}")
+
+    return {
+        "status": 'success',
+    }
 
 @app.post(
     "/detectar_incendio/", 
