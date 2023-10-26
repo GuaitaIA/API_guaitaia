@@ -10,7 +10,7 @@ class User(Base):
     email = Column(String, unique=True, index=True)
     hashed_password = Column(String)
     is_active = Column(Boolean, default=True)
-    full_name = Column(String)
+    role = Column(String)
 
 class Token(BaseModel):
     access_token: str

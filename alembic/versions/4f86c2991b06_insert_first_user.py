@@ -22,8 +22,8 @@ def upgrade() -> None:
     # insert first user
     op.execute(
         """
-        INSERT INTO users (email, hashed_password, is_active, full_name)
-        VALUES ('admin@admin.com', '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW', true, 'admin')
+        INSERT INTO users (email, hashed_password, is_active, role)
+        VALUES ('admin@admin.com', '$2y$10$zkTtwVcNw8MJB4theDKvEeER.DarFqzqjyAyqUHLMAmdor5tfjBlu', true, 'superadmin')
         """
     )
 
