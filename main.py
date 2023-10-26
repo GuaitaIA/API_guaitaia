@@ -11,10 +11,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Depends, FastAPI, HTTPException, File, UploadFile, Form, status
 from PIL import Image
 
+from dotenv import load_dotenv
+import os
+
 import funcs as fc 
 import models as mod
 
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:postgres@localhost:5433/guaitaia"
+# Cargar variables de entorno
+load_dotenv() 
+
+SQLALCHEMY_DATABASE_URL = os.getenv("SQLALCHEMY_DATABASE_URL")
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 

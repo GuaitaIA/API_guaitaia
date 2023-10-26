@@ -103,11 +103,11 @@ def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int
 
 async def get_database_connection():
     conn = await asyncpg.connect(
-        user="postgres",
-        password="postgres",
-        database="guaitaia",
-        host="localhost",
-        port="5433"
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        database=os.getenv("DB_DATABASE"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT")
     )
     return conn
 
