@@ -102,6 +102,7 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 app.mount("/imagenes", StaticFiles(directory="Resultados"), name="imagenes")
+app.mount("/imagenes_original", StaticFiles(directory="Original"), name="imagenes")
 
 @app.post("/user/create", tags=["User"])
 async def create_user(
@@ -116,8 +117,7 @@ async def create_user(
         raise HTTPException(status_code=400, detail=f"Error al crear el usuario: {e}")
 
     return {
-        "email": email,
-        "role": role,
+        status: 'success',
     }
 
 @app.patch("/user/update/password", tags=["User"])
@@ -168,7 +168,7 @@ async def detectar_incendio(
 
     try:
         image = Image.open(imagen.file)
-        detecciones, valor_confianza, nombre_resultado = fc.procesar_imagen(image, confianza, iou, cpu)
+        detecciones, valor_confianza, nombre_resultado, original = fc.procesar_imagen(image, confianza, iou, cpu)
         if detecciones == True:
             await fc.insert_results(current_user, 'simple', 1, 0)
         else:
@@ -185,6 +185,7 @@ async def detectar_incendio(
         "fecha": ahora.date().isoformat(),
         "hora": ahora.time().isoformat(),
         "GPU": cpu,
+        "original": original,
     }
 
 @app.post("/detectar_incendios_multiples/", tags=["Multiple detection"])

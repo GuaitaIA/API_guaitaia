@@ -53,12 +53,15 @@ def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu: int)
             conf = round(results.conf[0], 2)
             deteccion = True
             procesada = os.path.basename(temp_file.name)
+
+            input_image.save(os.path.join("./", "Original", "original_" + procesada))
+            original = "original_" + procesada
         else:
             conf = 0
             deteccion = False
             procesada = os.path.basename(temp_file.name)
 
-        return deteccion, float(conf), procesada  # Aquí devolvemos la ruta a la imagen procesada
+        return deteccion, float(conf), procesada, original  # Aquí devolvemos la ruta a la imagen procesada
 
     except Exception as e:
         raise Exception(f"Error al procesar la imagen: {e}")
