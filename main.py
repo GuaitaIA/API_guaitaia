@@ -44,6 +44,10 @@ tags_metadata = [
     {
         "name": "Multiple detection",
         "description": "Process multiple images at once."
+    },
+    {
+        "name": "Results",
+        "description": "Get the results of the detections."
     }
 ]
 
@@ -213,6 +217,18 @@ async def detectar_incendios_multiples(
         "hora": ahora.time().isoformat(),
         "GPU": cpu,
     }
+
+@app.get("/statistics/", tags=["Results"])
+async def get_statistics(
+    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
+    user: int | None = None,
+):
+    try:
+        statistics = await fc.statistics(current_user, user)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al obtener los resultados: {e}")
+
+    return statistics[0]
 
 if __name__ == "__main__":
     import uvicorn

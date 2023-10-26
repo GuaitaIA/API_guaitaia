@@ -216,4 +216,28 @@ async def update_password(user: mod.User, password: str):
         await conn.close()
     return user.email
 
+async def statistics(current_user: mod.User, user_id: int | None = None):
+    print(current_user.id)
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            if user_id:
+                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections FROM results WHERE user_id = $1"
+                results = await conn.fetch(query, user_id)
+                return results
+            else:
+                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections FROM results"
+                results = await conn.fetch(query)
+                return results
+        elif current_user.role == "user":
+            if user_id:
+                raise HTTPException(status_code=400, detail="Permissions required")
+            else:
+                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections FROM results WHERE user_id = $1"
+                results = await conn.fetch(query, current_user.id)
+        else:
+            raise HTTPException(status_code=400, detail="Permissions required")
+        return results
+    finally:
+        await conn.close()
     
