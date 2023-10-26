@@ -169,6 +169,13 @@ async def get_current_active_user(
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
+async def get_current_user_is_superadmin(
+    current_user: Annotated[mod.User, Depends(get_current_user)]
+):
+    if current_user.role != "superadmin":
+        raise HTTPException(status_code=400, detail="Permissions required")
+    return current_user
+
 def validar_extension(filename: str) -> bool:
     try:
         nombre, extension = filename.rsplit('.', 1)
