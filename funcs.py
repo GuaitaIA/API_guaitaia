@@ -104,10 +104,10 @@ def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int
 async def get_database_connection():
     conn = await asyncpg.connect(
         user="postgres",
-        password="1234",
-        database="guaitaiadb",
+        password="postgres",
+        database="guaitaia",
         host="localhost",
-        port="5432"
+        port="5433"
     )
     return conn
 
@@ -175,3 +175,15 @@ def validar_extension(filename: str) -> bool:
         return extension.lower() in EXTENSIONES_PERMITIDAS
     except ValueError:
         return False
+    
+async def insert_results(user: mod.User, type: str, detections: int, not_detections: int):
+    print(detections)
+    print(not_detections)
+    dateTime = datetime.now()
+    conn = await get_database_connection()
+    try:
+        query = "INSERT INTO results (user_id, date, type, detections, not_detections) VALUES ($1, $2, $3, $4, $5)"
+        await conn.execute(query, user.id, dateTime, type, detections, not_detections)
+    finally:
+        await conn.close()
+    return user.email

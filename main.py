@@ -14,7 +14,7 @@ from PIL import Image
 import funcs as fc 
 import models as mod
 
-SQLALCHEMY_DATABASE_URL = "postgresql://postgres:1234@localhost:5432/guaitaiadb"
+SQLALCHEMY_DATABASE_URL = "postgresql://postgres:postgres@localhost:5433/guaitaia"
 
 engine = create_engine(SQLALCHEMY_DATABASE_URL)
 
@@ -122,6 +122,11 @@ async def detectar_incendio(
     try:
         image = Image.open(imagen.file)
         detecciones, valor_confianza, nombre_resultado = fc.procesar_imagen(image, confianza, iou, cpu)
+        print(detecciones)
+        if detecciones == True:
+            await fc.insert_results(current_user, 'simple', 1, 0)
+        else:
+            await fc.insert_results(current_user, 'simple', 0, 1)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al procesar la imagen: {e}")
 
@@ -150,6 +155,9 @@ async def detectar_incendios_multiples(
     
     try:
         detecciones, valor_confianza, nombres_resultados = fc.procesar_imagen2(imagenes, confianza, iou, cpu)
+        detections = detecciones.count(True)
+        not_detections = detecciones.count(False)
+        await fc.insert_results(current_user, 'multiples', detections, not_detections)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al procesar las imágenes: {e}")
 
