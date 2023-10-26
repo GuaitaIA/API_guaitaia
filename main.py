@@ -99,7 +99,7 @@ async def login_for_access_token(
 
 app.mount("/imagenes", StaticFiles(directory="Resultados"), name="imagenes")
 
-@app.post("/create", tags=["User"])
+@app.post("/user/create", tags=["User"])
 async def create_user(
     current_user: Annotated[mod.User, Depends(fc.get_current_user_is_superadmin)],
     email: str = Form(...),
@@ -116,7 +116,7 @@ async def create_user(
         "role": role,
     }
 
-@app.patch("/password", tags=["User"])
+@app.patch("/user/update/password", tags=["User"])
 async def update_password(
     current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
     password: str = Form(...)
