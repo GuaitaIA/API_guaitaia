@@ -19,6 +19,9 @@ from fastapi import Depends, HTTPException, status
 
 import bcrypt
 
+import base64
+import io
+
 # Cargar variables de entorno
 load_dotenv() 
 
@@ -49,17 +52,18 @@ def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu: int)
             results = model.predict(input_image, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
             results = results[0].boxes.numpy()
 
+        procesada = os.path.basename(temp_file.name)
+        original = "original_" + procesada
+
         if results.conf.size > 0:
             conf = round(results.conf[0], 2)
             deteccion = True
-            procesada = os.path.basename(temp_file.name)
-
-            input_image.save(os.path.join("./", "Original", "original_" + procesada))
-            original = "original_" + procesada
+            input_image.save(os.path.join("./", "Original", original))
         else:
             conf = 0
             deteccion = False
-            procesada = os.path.basename(temp_file.name)
+            original = None
+            procesada = None 
 
         return deteccion, float(conf), procesada, original  # Aquí devolvemos la ruta a la imagen procesada
 
@@ -243,4 +247,21 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
         return results
     finally:
         await conn.close()
+
+async def base64_to_image(base64_string: str) -> Image.Image:
+    try:
+        image = Image.open(io.BytesIO(base64.b64decode(base64_string)))
+        return image
+    except Exception as e:
+        raise Exception(f"Error al convertir la imagen: {e}")
+        
+async def base64_to_images(base64_strings: List[str]) -> List[Image.Image]:
+    try:
+        images = []
+        for base64_string in base64_strings:
+            image = await base64_to_image(base64_string)
+        print(images)
+        return images
+    except Exception as e:
+        raise Exception(f"Error al convertir las imágenes: {e}")
     

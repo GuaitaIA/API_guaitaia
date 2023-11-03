@@ -231,6 +231,62 @@ async def get_statistics(
 
     return statistics[0]
 
+
+
+
+
+
+@app.post(
+    "/detectar_incendio_base64/", 
+    tags=["Individual detection"],
+    responses={
+        # 404: {"model": Message, "description": "The item was not found"},
+        200: {
+            "description": "Item requested by ID",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "detecciones": True,
+                        "confianza": 0.8399999737739563,
+                        "imagen_procesada": "tmpyoaewshv.jpg",
+                        "fecha": "2023-10-19",
+                        "hora": "09:33:40.461835",
+                        "GPU": 1
+                    }
+                }
+            },
+        },
+    },
+)
+async def detectar_incendio(
+    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
+    imagen_base64: str = Form(...),
+    confianza: float = Form(...),
+    iou: float = Form(...),
+    cpu: int = Form(...)
+):   
+    try:
+        image = await fc.base64_to_image(imagen_base64)
+        detecciones, valor_confianza, nombre_resultado, original = fc.procesar_imagen(image, confianza, iou, cpu)
+        if detecciones == True:
+            await fc.insert_results(current_user, 'simple', 1, 0)
+        else:
+            await fc.insert_results(current_user, 'simple', 0, 1)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al procesar la imagen: {e}")
+    
+    ahora = fc.datetime.now()
+
+    return {
+        "detecciones": detecciones,
+        "confianza": valor_confianza,
+        "imagen_procesada": nombre_resultado,
+        "fecha": ahora.date().isoformat(),
+        "hora": ahora.time().isoformat(),
+        "GPU": cpu,
+        "original": original,
+    }
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
