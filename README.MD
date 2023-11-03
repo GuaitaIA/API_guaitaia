@@ -35,3 +35,7 @@ https://bcrypt.online/
 
 Iniciar proyecto
 nohup python main.py &
+
+
+http://89.233.108.38:8000/docs -> API
+http://89.233.108.38:8888 -> pgadmin (Acceder a la base de datos)
