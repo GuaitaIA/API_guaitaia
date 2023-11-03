@@ -32,3 +32,6 @@ alembic downgrade 8ac14e223d1e
 
 Para generar passwords encriptados lo podemos hacer desde aqui
 https://bcrypt.online/
+
+Iniciar proyecto
+nohup python main.py &
