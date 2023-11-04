@@ -1,4 +1,5 @@
 from datetime import timedelta
+import json
 from typing import Annotated
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
@@ -168,7 +169,7 @@ async def detectar_incendio(
 
     try:
         image = Image.open(imagen.file)
-        detecciones, valor_confianza, nombre_resultado, original = fc.procesar_imagen(image, confianza, iou, cpu)
+        detecciones, valor_confianza, nombre_resultado, original = await fc.procesar_imagen(image, confianza, iou, cpu, current_user)
         if detecciones == True:
             await fc.insert_results(current_user, 'simple', 1, 0)
         else:
@@ -201,23 +202,11 @@ async def detectar_incendios_multiples(
             raise HTTPException(status_code=400, detail="Formato de imagen no permitido")
     
     try:
-        detecciones, valor_confianza, nombres_resultados = fc.procesar_imagen2(imagenes, confianza, iou, cpu)
-        detections = detecciones.count(True)
-        not_detections = detecciones.count(False)
-        await fc.insert_results(current_user, 'multiples', detections, not_detections)
+        result = await fc.procesar_imagen2(imagenes, confianza, iou, cpu, current_user)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al procesar las imágenes: {e}")
 
-    ahora = fc.datetime.now()
-
-    return {
-        "detecciones": detecciones,
-        "confianza": valor_confianza,
-        "imagenes_procesadas": nombres_resultados,
-        "fecha": ahora.date().isoformat(),
-        "hora": ahora.time().isoformat(),
-        "GPU": cpu,
-    }
+    return json.loads(result)
 
 @app.get("/statistics/", tags=["Results"])
 async def get_statistics(
@@ -230,11 +219,6 @@ async def get_statistics(
         raise HTTPException(status_code=400, detail=f"Error al obtener los resultados: {e}")
 
     return statistics[0]
-
-
-
-
-
 
 @app.post(
     "/detectar_incendio_base64/", 
@@ -267,7 +251,7 @@ async def detectar_incendio(
 ):   
     try:
         image = await fc.base64_to_image(imagen_base64)
-        detecciones, valor_confianza, nombre_resultado, original = fc.procesar_imagen(image, confianza, iou, cpu)
+        detecciones, valor_confianza, nombre_resultado, original = fc.procesar_imagen(image, confianza, iou, cpu, current_user)
         if detecciones == True:
             await fc.insert_results(current_user, 'simple', 1, 0)
         else:
@@ -285,6 +269,35 @@ async def detectar_incendio(
         "hora": ahora.time().isoformat(),
         "GPU": cpu,
         "original": original,
+    }
+
+
+@app.post("/detectar_incendios_multiples_base64/", tags=["Multiple detection"])
+async def detectar_incendios_multiples(
+    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
+    imagenes: fc.List[str] = Form(...),
+    confianza: float = Form(...),
+    iou: float = Form(...),
+    cpu: int = Form(...)
+):
+    try:
+        imagenes = await fc.base64_to_images(imagenes)
+        detecciones, valor_confianza, nombres_resultados = fc.procesar_imagen2(imagenes, confianza, iou, cpu)
+        detections = detecciones.count(True)
+        not_detections = detecciones.count(False)
+        await fc.insert_results(current_user, 'multiples', detections, not_detections)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al procesar las imágenes: {e}")
+
+    ahora = fc.datetime.now()
+
+    return {
+        "detecciones": detecciones,
+        "confianza": valor_confianza,
+        "imagenes_procesadas": nombres_resultados,
+        "fecha": ahora.date().isoformat(),
+        "hora": ahora.time().isoformat(),
+        "GPU": cpu,
     }
 
 if __name__ == "__main__":

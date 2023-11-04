@@ -1,3 +1,4 @@
+import json
 from ultralytics import YOLO
 from dotenv import load_dotenv
 import os
@@ -41,7 +42,7 @@ try:
 except Exception as e:
     raise Exception(f"Error al cargar el modelo: {e}")
 
-def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu: int) -> tuple:
+async def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu: int, current_user: mod.User) -> tuple:
     try:
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
             imagen.save(temp_file.name)
@@ -59,6 +60,8 @@ def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu: int)
             conf = round(results.conf[0], 2)
             deteccion = True
             input_image.save(os.path.join("./", "Original", original))
+
+            await insert_detection(current_user, datetime.now(), original, procesada, conf)
         else:
             conf = 0
             deteccion = False
@@ -73,8 +76,59 @@ def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu: int)
     finally:
         if os.path.exists(temp_file.name):
             os.remove(temp_file.name)
+
+async def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int, current_user: mod.User) -> Tuple[List[bool], List[float], List[str]]:
+    countDetections = 0
+    countNotDetections = 0
+    try:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            processed_image_names = []
+            for imagen in imagenes:
+                image_path = os.path.join(temp_dir, imagen.filename)
+                with open(image_path, "wb") as buffer:
+                    shutil.copyfileobj(imagen.file, buffer)
+                processed_image_names.append(os.path.basename(image_path))
+
+            device = "cpu" if cpu == 1 else None
+
+            # Procesar todas las imágenes en el directorio temporal de una vez
+            predict = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device)
+
+            detecciones = []
+
+            for index, pre in enumerate(predict):
+                boxes = pre.boxes.numpy()
+                if boxes.conf.size > 0:
+                    conf = round(boxes.conf[0], 2)
+                    deteccion = True
+                    countDetections += 1
+
+                    # Guardar imagen original
+                    image = Image.open(os.path.join(temp_dir, processed_image_names[index]))
+                    image.save(os.path.join("./", "Original", processed_image_names[index]))
+
+                    await insert_detection(current_user, datetime.now(), processed_image_names[index], processed_image_names[index], conf)
+
+                    detecciones.append({
+                        "detection": deteccion,
+                        "conf": float(conf),
+                        "procesada": processed_image_names[index],
+                        "fecha": str(datetime.now())
+                    })
+
+                else:
+                    deteccion = False
+                    countNotDetections += 1
+                    detecciones.append({"detection": deteccion})
+
+            await insert_results(current_user, 'multiples', countDetections, countNotDetections)          
+
+            return json.dumps(detecciones)
+
+    except Exception as e:
+        raise Exception(f"Error al procesar las imágenes: {e}")
             
-def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int) -> Tuple[List[bool], List[float], List[str]]:
+"""def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int) -> Tuple[List[bool], List[float], List[str]]:
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
             processed_image_names = []
@@ -88,6 +142,8 @@ def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int
 
             # Procesar todas las imágenes en el directorio temporal de una vez
             results = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device)
+
+            print(results)
             
             detecciones = []
             confs = []
@@ -107,7 +163,7 @@ def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int
 
     except Exception as e:
         raise Exception(f"Error al procesar las imágenes: {e}")
-
+"""
 async def get_database_connection():
     conn = await asyncpg.connect(
         user=os.getenv("DB_USER"),
@@ -200,6 +256,15 @@ async def insert_results(user: mod.User, type: str, detections: int, not_detecti
         await conn.close()
     return user.email
 
+async def insert_detection(user: mod.User, date: datetime, url_original: str, url_processed: str, confidence: float):
+    conn = await get_database_connection()
+    try:
+        query = "INSERT INTO detections (user_id, date, url_original, url_processed, confidence) VALUES ($1, $2, $3, $4, $5)"
+        await conn.execute(query, user.id, date, url_original, url_processed, confidence)
+    finally:
+        await conn.close()
+    return user.email
+
 async def create_user(email: str, password: str, role: str):
     hashed_password = pwd_context.hash(password)
     conn = await get_database_connection()
@@ -224,7 +289,6 @@ async def update_password(user: mod.User, password: str):
     return user.email
 
 async def statistics(current_user: mod.User, user_id: int | None = None):
-    print(current_user.id)
     conn = await get_database_connection()
     try:
         if current_user.role == "superadmin":
@@ -259,8 +323,8 @@ async def base64_to_images(base64_strings: List[str]) -> List[Image.Image]:
     try:
         images = []
         for base64_string in base64_strings:
-            image = await base64_to_image(base64_string)
-        print(images)
+            image = Image.open(io.BytesIO(base64.b64decode(base64_string)))
+            images.append(image)
         return images
     except Exception as e:
         raise Exception(f"Error al convertir las imágenes: {e}")
