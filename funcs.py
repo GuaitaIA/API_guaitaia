@@ -92,7 +92,7 @@ async def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cp
             device = "cpu" if cpu == 1 else None
 
             # Procesar todas las imágenes en el directorio temporal de una vez
-            predict = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device)
+            predict = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
 
             detecciones = []
 
