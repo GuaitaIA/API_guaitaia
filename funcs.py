@@ -2,11 +2,10 @@ import json
 from ultralytics import YOLO
 from dotenv import load_dotenv
 import os
-from PIL import Image
 import tempfile
 import shutil
 from typing import List, Tuple, Any
-from fastapi import UploadFile
+import numpy as np
 
 import models as mod
 import asyncpg
@@ -18,10 +17,10 @@ from jose import JWTError, jwt
 from typing import Annotated
 from fastapi import Depends, HTTPException, status
 
-import bcrypt
-
 import base64
-import io
+
+import csv
+import cv2
 
 # Cargar variables de entorno
 load_dotenv() 
@@ -31,7 +30,7 @@ load_dotenv()
 SECRET_KEY = os.getenv("SECRET_KEY")
 ALGORITHM = os.getenv("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES"))
-EXTENSIONES_PERMITIDAS = {"jpg", "jpeg", "png"}
+EXTENSIONES_PERMITIDAS = {"jpg", "jpeg", "png", "webp"}
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -42,26 +41,33 @@ try:
 except Exception as e:
     raise Exception(f"Error al cargar el modelo: {e}")
 
-async def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu: int, current_user: mod.User) -> tuple:
+async def procesar_imagen_single(imagen: np.ndarray, confianza: float, iou: float, cpu: int, current_user: mod.User) -> tuple:
     try:
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
-            imagen.save(temp_file.name)
-            input_image = Image.open(temp_file.name)
-            
-            device = "cpu" if cpu == 1 else None
-            
-            results = model.predict(input_image, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
-            results = results[0].boxes.numpy()
+        device = "cpu" if cpu == 1 else None
+        
+        results = model.predict(imagen, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480), augment=True, )
+        results2 = results[0].boxes.numpy()
 
-        procesada = os.path.basename(temp_file.name)
+        procesada = os.path.basename(results[0].path) + ".webp"
         original = "original_" + procesada
 
-        if results.conf.size > 0:
-            conf = round(results.conf[0], 2)
+        if results2.conf.size > 0:
+            conf = round(results2.conf[0], 2)
             deteccion = True
-            input_image.save(os.path.join("./", "Original", original))
+            
+            # Guardar la imagen original en formato WebP con OpenCV
+            cv2.imwrite(os.path.join("./", "Original", "original_" + str(procesada)), imagen, [cv2.IMWRITE_WEBP_QUALITY, 90])
+            
+            # Guardar la imagen resultado en WebP con OpenCV
+            temp = cv2.imread(os.path.join("./", "Resultados", results[0].path))
+            
+            cv2.imwrite(os.path.join("./","Resultados", str(procesada)), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
+            os.remove(os.path.join("./", "Resultados", results[0].path))
 
-            await insert_detection(current_user, datetime.now(), original, procesada, conf)
+            try:
+                await insert_detection(current_user, datetime.now(), original, procesada, conf)
+            except Exception as e:
+                raise Exception(f"Error al insertar detección en base de datos: {e}")
         else:
             conf = 0
             deteccion = False
@@ -73,11 +79,51 @@ async def procesar_imagen(imagen: Image.Image, confianza: float, iou: float, cpu
     except Exception as e:
         raise Exception(f"Error al procesar la imagen: {e}")
 
-    finally:
-        if os.path.exists(temp_file.name):
-            os.remove(temp_file.name)
+async def procesar_imagen_single_link(link: str, confianza: float, iou: float, cpu: int, current_user: mod.User) -> tuple:
+    try:
+        device = "cpu" if cpu == 1 else None
+            
+        results = model.predict(link, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
+        results2 = results[0].boxes.numpy()
 
-async def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int, current_user: mod.User) -> Tuple[List[bool], List[float], List[str]]:
+
+        procesada = os.path.basename(results[0].path) + ".webp"
+        original = "original_" + procesada
+            
+        if results2.conf.size > 0:
+            conf = round(results2.conf[0], 2)
+            deteccion = True 
+    
+            # Guardar la imagen original en formato WebP con OpenCV
+            cv2.imwrite(os.path.join("./", "Original", "original_" + str(procesada)), results[0].orig_img.astype('uint8'), [cv2.IMWRITE_WEBP_QUALITY, 90])
+            
+            # Guardar la imagen resultado en WebP con OpenCV
+            temp = cv2.imread(os.path.join("./", "Resultados", os.path.basename(results[0].path)))
+            cv2.imwrite(os.path.join("./","Resultados", str(procesada)), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
+            os.remove(os.path.join("./", "Resultados", os.path.basename(results[0].path)))
+            
+            try:
+                await insert_detection(current_user, datetime.now(), original, procesada, conf)
+            except Exception as e:
+                raise Exception(f"Error al insertar la detección en base de datos: {e}")
+
+                
+        else:
+            conf = 0
+            deteccion = False
+            original = None
+            procesada = None 
+
+        return deteccion, float(conf), procesada, original  # Aquí devolvemos la ruta a la imagen procesada
+
+    except Exception as e:
+        raise Exception(f"Error al procesar la imagen: {e}")
+    
+    finally:
+        if os.path.exists(os.path.basename(link)):
+            os.remove(os.path.basename(link))
+
+async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: float, cpu: int, current_user: mod.User) -> Tuple[List[bool], List[float], List[str]]:
     countDetections = 0
     countNotDetections = 0
     try:
@@ -104,16 +150,29 @@ async def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cp
                     countDetections += 1
 
                     # Guardar imagen original
-                    image = Image.open(os.path.join(temp_dir, processed_image_names[index]))
-                    image.save(os.path.join("./", "Original", processed_image_names[index]))
+                    try:
+                        image = cv2.imread(os.path.join(temp_dir, str(processed_image_names[index])))
+                        cv2.imwrite(os.path.join("./", "Original", "original_" + str(processed_image_names[index]) + ".webp"), image, [cv2.IMWRITE_WEBP_QUALITY, 90])
 
-                    await insert_detection(current_user, datetime.now(), processed_image_names[index], processed_image_names[index], conf)
+                    except Exception as e:
+                        print(f"Error al guardar imagenes originales: {e}")
+                                       
+                    # Guardar la imagen resultado en WebP con OpenCV
+                    temp = cv2.imread(os.path.join("./", "Resultados", processed_image_names[index]))
+                    cv2.imwrite(os.path.join("./","Resultados", str(processed_image_names[index]) + ".webp"), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
+                    os.remove(os.path.join("./", "Resultados", os.path.basename(processed_image_names[index])))
+            
+                    original = "original_" + processed_image_names[index] + ".webp"
+                    procesada = processed_image_names[index] + ".webp"
+                    await insert_detection(current_user, datetime.now(), original, procesada, conf)
 
                     detecciones.append({
                         "detection": deteccion,
                         "conf": float(conf),
-                        "procesada": processed_image_names[index],
-                        "fecha": str(datetime.now())
+                        "procesada": procesada,
+                        "original": original,
+                        "fecha": str(datetime.now().date().isoformat()),
+                        "hora": str(datetime.now().time().isoformat())
                     })
 
                 else:
@@ -127,43 +186,69 @@ async def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cp
 
     except Exception as e:
         raise Exception(f"Error al procesar las imágenes: {e}")
-            
-"""def procesar_imagen2(imagenes: List[Any], confianza: float, iou: float, cpu: int) -> Tuple[List[bool], List[float], List[str]]:
+
+"""
+async def procesar_imagen_multiple_links(imagenes: List[str], confianza: float, iou: float, cpu: int, current_user: mod.User) -> Tuple[List[bool], List[float], List[str]]:
+    countDetections = 0
+    countNotDetections = 0
     try:
-        with tempfile.TemporaryDirectory() as temp_dir:
-            processed_image_names = []
-            for imagen in imagenes:
-                image_path = os.path.join(temp_dir, imagen.filename)
-                with open(image_path, "wb") as buffer:
-                    shutil.copyfileobj(imagen.file, buffer)
-                processed_image_names.append(os.path.basename(image_path))
+        csv_file = await guardar_enlaces_en_csv(imagenes)
+        
+        device = "cpu" if cpu == 1 else None
 
-            device = "cpu" if cpu == 1 else None
+        # Procesar todas las imágenes en el csv temporal de una vez
+        predict = model.predict(csv_file, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
 
-            # Procesar todas las imágenes en el directorio temporal de una vez
-            results = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device)
+        detecciones = []
 
-            print(results)
-            
-            detecciones = []
-            confs = []
+        for index, pre in enumerate(predict):
+            boxes = pre.boxes.numpy()
+            if boxes.conf.size > 0:
+                conf = round(boxes.conf[0], 2)
+                deteccion = True
+                countDetections += 1
 
-            for res in results:
-                boxes = res.boxes.numpy()
-                if boxes.conf.size > 0:
-                    conf = round(boxes.conf[0], 2)
-                    deteccion = True
-                else:
-                    conf = 0
-                    deteccion = False
-                detecciones.append(deteccion)
-                confs.append(float(conf))
+                procesada = os.path.basename(pre[index].path) + ".webp"
+                original = "original_" + procesada
+                
+                # Guardar imagen original
+                try:
+                    imagen = cv2.imread(pre[index].orig_img.astype('uint8'))
+                    # Guardar la imagen original en formato WebP con OpenCV
+                    cv2.imwrite(os.path.join("./", "Original", "original_" + str(procesada)), imagen, [cv2.IMWRITE_WEBP_QUALITY, 90])
 
-            return detecciones, confs, processed_image_names
+                except Exception as e:
+                    print(f"Error al guardar imagenes originales: {e}")
+                                       
+                # Guardar la imagen resultado en WebP con OpenCV
+                temp = cv2.imread(os.path.join("./", "Resultados", os.path.basename(pre[index].path)))
+                cv2.imwrite(os.path.join("./","Resultados", procesada), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
+                os.remove(os.path.join("./", "Resultados", os.path.basename(pre[index].path)))
+                            
+                await insert_detection(current_user, datetime.now(), original, procesada, conf)
+
+                detecciones.append({
+                    "detection": deteccion,
+                    "conf": float(conf),
+                    "procesada": procesada,
+                    "original": original,
+                    "fecha": str(datetime.now().date().isoformat()),
+                    "hora": str(datetime.now().time().isoformat())
+                })
+
+            else:
+                deteccion = False
+                countNotDetections += 1
+                detecciones.append({"detection": deteccion})
+
+        await insert_results(current_user, 'multiples', countDetections, countNotDetections)          
+
+        return json.dumps(detecciones)
 
     except Exception as e:
         raise Exception(f"Error al procesar las imágenes: {e}")
 """
+
 async def get_database_connection():
     conn = await asyncpg.connect(
         user=os.getenv("DB_USER"),
@@ -261,6 +346,9 @@ async def insert_detection(user: mod.User, date: datetime, url_original: str, ur
     try:
         query = "INSERT INTO detections (user_id, date, url_original, url_processed, confidence) VALUES ($1, $2, $3, $4, $5)"
         await conn.execute(query, user.id, date, url_original, url_processed, confidence)
+    except Exception as e:
+        raise Exception(f"Error al insertar detección en base de datos: {e}")
+    
     finally:
         await conn.close()
     return user.email
@@ -312,20 +400,42 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
     finally:
         await conn.close()
 
-async def base64_to_image(base64_string: str) -> Image.Image:
+async def base64_to_image(base64_string: str) -> np.ndarray:
     try:
-        image = Image.open(io.BytesIO(base64.b64decode(base64_string)))
+        # Decodificar base64
+        image_data = base64.b64decode(base64_string)
+        # Converir a numpy darray
+        nparr = np.frombuffer(image_data, np.uint8)
+        # Decodificar
+        image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         return image
     except Exception as e:
         raise Exception(f"Error al convertir la imagen: {e}")
         
-async def base64_to_images(base64_strings: List[str]) -> List[Image.Image]:
+async def base64_to_images(base64_strings: List[str]) -> List[np.ndarray]:
     try:
         images = []
         for base64_string in base64_strings:
-            image = Image.open(io.BytesIO(base64.b64decode(base64_string)))
+            # Decodificar base64
+            image_data = base64.b64decode(base64_string)
+            # Convertir a numpy darray
+            nparr = np.frombuffer(image_data, np.uint8)
+            # Decodificar
+            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
             images.append(image)
         return images
     except Exception as e:
         raise Exception(f"Error al convertir las imágenes: {e}")
-    
+
+async def guardar_enlaces_en_csv(links):
+    # Crea un archivo CSV temporal
+    with tempfile.NamedTemporaryFile(delete=False, mode='w', newline='', suffix='.csv') as temp_file:
+        # Crea un objeto CSV
+        csv_writer = csv.writer(temp_file)
+
+        # Escribe los enlaces en el archivo CSV
+        for link in links:
+            csv_writer.writerow([link])
+
+    # Devuelve el nombre del archivo CSV temporal
+    return temp_file.name
