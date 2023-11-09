@@ -23,6 +23,9 @@ import csv
 import cv2
 import requests
 
+from io import BytesIO
+from PIL import Image
+import uuid
 # Cargar variables de entorno
 load_dotenv()
 
@@ -60,10 +63,15 @@ async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: f
                     with open(image_path, "wb") as buffer:
                         buffer.write(response.content)
                 elif isinstance(imagen, str) and not imagen.startswith('http'):
-                    imagen_temp = base64_to_image(imagen)
-                    image_path = os.path.join(temp_dir, imagen_temp.filename)
-                    with open(image_path, "wb") as buffer:
-                        shutil.copyfileobj(imagen_temp.file, buffer)
+                    # Decodificar la imagen de base64 a bytes
+                    image_data = base64.b64decode(imagen)
+                    # Convertir los bytes en un objeto de imagen PIL
+                    image = Image.open(BytesIO(image_data))
+                    # Crear un nombre de archivo único para la imagen
+                    image_filename = f"image_{uuid.uuid4()}.webp"
+                    image_path = os.path.join(temp_dir, image_filename)
+                    # Guardar la imagen en el directorio temporal en formato WEBP
+                    image.save(image_path, 'WEBP')
                 else:
                     # La entrada es un objeto de archivo o una ruta de archivo
                     if validar_extension(imagen.filename):
