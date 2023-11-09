@@ -21,9 +21,10 @@ import base64
 
 import csv
 import cv2
+import requests
 
 # Cargar variables de entorno
-load_dotenv() 
+load_dotenv()
 
 # to get a string like this run:
 # openssl rand -hex 32
@@ -41,104 +42,46 @@ try:
 except Exception as e:
     raise Exception(f"Error al cargar el modelo: {e}")
 
-async def procesar_imagen_single(imagen: np.ndarray, confianza: float, iou: float, cpu: int, current_user: mod.User) -> tuple:
-    try:
-        device = "cpu" if cpu == 1 else None
-        
-        results = model.predict(imagen, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480), augment=True, )
-        results2 = results[0].boxes.numpy()
-
-        procesada = os.path.basename(results[0].path) + ".webp"
-        original = "original_" + procesada
-
-        if results2.conf.size > 0:
-            conf = round(results2.conf[0], 2)
-            deteccion = True
-            
-            # Guardar la imagen original en formato WebP con OpenCV
-            cv2.imwrite(os.path.join("./", "Original", "original_" + str(procesada)), imagen, [cv2.IMWRITE_WEBP_QUALITY, 90])
-            
-            # Guardar la imagen resultado en WebP con OpenCV
-            temp = cv2.imread(os.path.join("./", "Resultados", results[0].path))
-            
-            cv2.imwrite(os.path.join("./","Resultados", str(procesada)), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
-            os.remove(os.path.join("./", "Resultados", results[0].path))
-
-            try:
-                await insert_detection(current_user, datetime.now(), original, procesada, conf)
-            except Exception as e:
-                raise Exception(f"Error al insertar detección en base de datos: {e}")
-        else:
-            conf = 0
-            deteccion = False
-            original = None
-            procesada = None 
-
-        return deteccion, float(conf), procesada, original  # Aquí devolvemos la ruta a la imagen procesada
-
-    except Exception as e:
-        raise Exception(f"Error al procesar la imagen: {e}")
-
-async def procesar_imagen_single_link(link: str, confianza: float, iou: float, cpu: int, current_user: mod.User) -> tuple:
-    try:
-        device = "cpu" if cpu == 1 else None
-            
-        results = model.predict(link, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
-        results2 = results[0].boxes.numpy()
-
-
-        procesada = os.path.basename(results[0].path) + ".webp"
-        original = "original_" + procesada
-            
-        if results2.conf.size > 0:
-            conf = round(results2.conf[0], 2)
-            deteccion = True 
-    
-            # Guardar la imagen original en formato WebP con OpenCV
-            cv2.imwrite(os.path.join("./", "Original", "original_" + str(procesada)), results[0].orig_img.astype('uint8'), [cv2.IMWRITE_WEBP_QUALITY, 90])
-            
-            # Guardar la imagen resultado en WebP con OpenCV
-            temp = cv2.imread(os.path.join("./", "Resultados", os.path.basename(results[0].path)))
-            cv2.imwrite(os.path.join("./","Resultados", str(procesada)), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
-            os.remove(os.path.join("./", "Resultados", os.path.basename(results[0].path)))
-            
-            try:
-                await insert_detection(current_user, datetime.now(), original, procesada, conf)
-            except Exception as e:
-                raise Exception(f"Error al insertar la detección en base de datos: {e}")
-
-                
-        else:
-            conf = 0
-            deteccion = False
-            original = None
-            procesada = None 
-
-        return deteccion, float(conf), procesada, original  # Aquí devolvemos la ruta a la imagen procesada
-
-    except Exception as e:
-        raise Exception(f"Error al procesar la imagen: {e}")
-    
-    finally:
-        if os.path.exists(os.path.basename(link)):
-            os.remove(os.path.basename(link))
 
 async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: float, cpu: int, current_user: mod.User) -> Tuple[List[bool], List[float], List[str]]:
     countDetections = 0
     countNotDetections = 0
+    processed_image_names = []
     try:
         with tempfile.TemporaryDirectory() as temp_dir:
-            processed_image_names = []
+
             for imagen in imagenes:
-                image_path = os.path.join(temp_dir, imagen.filename)
-                with open(image_path, "wb") as buffer:
-                    shutil.copyfileobj(imagen.file, buffer)
+                # Determinar si la entrada es base64, URL o archivo
+                if isinstance(imagen, str) and imagen.startswith('http'):
+                    # La entrada es una URL
+                    response = requests.get(imagen)
+                    image_path = os.path.join(
+                        temp_dir, os.path.basename(imagen))
+                    with open(image_path, "wb") as buffer:
+                        buffer.write(response.content)
+                elif isinstance(imagen, str) and imagen.startswith(('data:image/png;base64', 'data:image/jpeg;base64')):
+                    # La entrada es una cadena en base64
+                    header, encoded = imagen.split(",", 1)
+                    image_data = base64.b64decode(encoded)
+                    # Crear un nombre de archivo único para la imagen
+                    image_path = os.path.join(
+                        temp_dir, f"image_{datetime.now().timestamp()}.png")
+                    with open(image_path, "wb") as buffer:
+                        buffer.write(image_data)
+                else:
+                    # La entrada es un objeto de archivo o una ruta de archivo
+                    if validar_extension(imagen.filename):
+                        image_path = os.path.join(temp_dir, imagen.filename)
+                        with open(image_path, "wb") as buffer:
+                            shutil.copyfileobj(imagen.file, buffer)
+
                 processed_image_names.append(os.path.basename(image_path))
 
             device = "cpu" if cpu == 1 else None
 
             # Procesar todas las imágenes en el directorio temporal de una vez
-            predict = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
+            predict = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./",
+                                    name="Resultados", exist_ok=True, device=device, imgsz=(800, 480))
 
             detecciones = []
 
@@ -151,18 +94,24 @@ async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: f
 
                     # Guardar imagen original
                     try:
-                        image = cv2.imread(os.path.join(temp_dir, str(processed_image_names[index])))
-                        cv2.imwrite(os.path.join("./", "Original", "original_" + str(processed_image_names[index]) + ".webp"), image, [cv2.IMWRITE_WEBP_QUALITY, 90])
+                        image = cv2.imread(os.path.join(
+                            temp_dir, str(processed_image_names[index])))
+                        cv2.imwrite(os.path.join("./", "Original", "original_" + str(
+                            processed_image_names[index]) + ".webp"), image, [cv2.IMWRITE_WEBP_QUALITY, 90])
 
                     except Exception as e:
                         print(f"Error al guardar imagenes originales: {e}")
-                                       
+
                     # Guardar la imagen resultado en WebP con OpenCV
-                    temp = cv2.imread(os.path.join("./", "Resultados", processed_image_names[index]))
-                    cv2.imwrite(os.path.join("./","Resultados", str(processed_image_names[index]) + ".webp"), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
-                    os.remove(os.path.join("./", "Resultados", os.path.basename(processed_image_names[index])))
-            
-                    original = "original_" + processed_image_names[index] + ".webp"
+                    temp = cv2.imread(os.path.join(
+                        "./", "Resultados", processed_image_names[index]))
+                    cv2.imwrite(os.path.join("./", "Resultados", str(
+                        processed_image_names[index]) + ".webp"), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
+                    os.remove(os.path.join("./", "Resultados",
+                              os.path.basename(processed_image_names[index])))
+
+                    original = "original_" + \
+                        processed_image_names[index] + ".webp"
                     procesada = processed_image_names[index] + ".webp"
                     await insert_detection(current_user, datetime.now(), original, procesada, conf)
 
@@ -180,74 +129,13 @@ async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: f
                     countNotDetections += 1
                     detecciones.append({"detection": deteccion})
 
-            await insert_results(current_user, 'multiples', countDetections, countNotDetections)          
+            await insert_results(current_user, 'multiples', countDetections, countNotDetections)
 
             return json.dumps(detecciones)
 
     except Exception as e:
         raise Exception(f"Error al procesar las imágenes: {e}")
 
-"""
-async def procesar_imagen_multiple_links(imagenes: List[str], confianza: float, iou: float, cpu: int, current_user: mod.User) -> Tuple[List[bool], List[float], List[str]]:
-    countDetections = 0
-    countNotDetections = 0
-    try:
-        csv_file = await guardar_enlaces_en_csv(imagenes)
-        
-        device = "cpu" if cpu == 1 else None
-
-        # Procesar todas las imágenes en el csv temporal de una vez
-        predict = model.predict(csv_file, conf=confianza, iou=iou, save=True, project="./", name="Resultados", exist_ok=True, device=device, imgsz=(800,480))
-
-        detecciones = []
-
-        for index, pre in enumerate(predict):
-            boxes = pre.boxes.numpy()
-            if boxes.conf.size > 0:
-                conf = round(boxes.conf[0], 2)
-                deteccion = True
-                countDetections += 1
-
-                procesada = os.path.basename(pre[index].path) + ".webp"
-                original = "original_" + procesada
-                
-                # Guardar imagen original
-                try:
-                    imagen = cv2.imread(pre[index].orig_img.astype('uint8'))
-                    # Guardar la imagen original en formato WebP con OpenCV
-                    cv2.imwrite(os.path.join("./", "Original", "original_" + str(procesada)), imagen, [cv2.IMWRITE_WEBP_QUALITY, 90])
-
-                except Exception as e:
-                    print(f"Error al guardar imagenes originales: {e}")
-                                       
-                # Guardar la imagen resultado en WebP con OpenCV
-                temp = cv2.imread(os.path.join("./", "Resultados", os.path.basename(pre[index].path)))
-                cv2.imwrite(os.path.join("./","Resultados", procesada), temp, [cv2.IMWRITE_WEBP_QUALITY, 90])
-                os.remove(os.path.join("./", "Resultados", os.path.basename(pre[index].path)))
-                            
-                await insert_detection(current_user, datetime.now(), original, procesada, conf)
-
-                detecciones.append({
-                    "detection": deteccion,
-                    "conf": float(conf),
-                    "procesada": procesada,
-                    "original": original,
-                    "fecha": str(datetime.now().date().isoformat()),
-                    "hora": str(datetime.now().time().isoformat())
-                })
-
-            else:
-                deteccion = False
-                countNotDetections += 1
-                detecciones.append({"detection": deteccion})
-
-        await insert_results(current_user, 'multiples', countDetections, countNotDetections)          
-
-        return json.dumps(detecciones)
-
-    except Exception as e:
-        raise Exception(f"Error al procesar las imágenes: {e}")
-"""
 
 async def get_database_connection():
     conn = await asyncpg.connect(
@@ -258,6 +146,7 @@ async def get_database_connection():
         port=os.getenv("DB_PORT")
     )
     return conn
+
 
 async def get_user_from_db(email: str):
     conn = await get_database_connection()
@@ -270,8 +159,10 @@ async def get_user_from_db(email: str):
     finally:
         await conn.close()
 
+
 def verify_password(plain_password, hashed_password):
     return pwd_context.verify(plain_password, hashed_password)
+
 
 async def authenticate_user(email: str, password: str):
     user = await get_user_from_db(email)
@@ -280,6 +171,7 @@ async def authenticate_user(email: str, password: str):
     if not verify_password(password, user.hashed_password):
         return False
     return user
+
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode = data.copy()
@@ -290,6 +182,7 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None):
     to_encode.update({"exp": expire})
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     credentials_exception = HTTPException(
@@ -310,12 +203,14 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
         raise credentials_exception
     return user
 
+
 async def get_current_active_user(
     current_user: Annotated[mod.User, Depends(get_current_user)]
 ):
     if current_user.is_active is False:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
+
 
 async def get_current_user_is_superadmin(
     current_user: Annotated[mod.User, Depends(get_current_user)]
@@ -324,13 +219,15 @@ async def get_current_user_is_superadmin(
         raise HTTPException(status_code=400, detail="Permissions required")
     return current_user
 
+
 def validar_extension(filename: str) -> bool:
     try:
         nombre, extension = filename.rsplit('.', 1)
         return extension.lower() in EXTENSIONES_PERMITIDAS
     except ValueError:
         return False
-    
+
+
 async def insert_results(user: mod.User, type: str, detections: int, not_detections: int):
     dateTime = datetime.now()
     conn = await get_database_connection()
@@ -341,6 +238,7 @@ async def insert_results(user: mod.User, type: str, detections: int, not_detecti
         await conn.close()
     return user.email
 
+
 async def insert_detection(user: mod.User, date: datetime, url_original: str, url_processed: str, confidence: float):
     conn = await get_database_connection()
     try:
@@ -348,10 +246,11 @@ async def insert_detection(user: mod.User, date: datetime, url_original: str, ur
         await conn.execute(query, user.id, date, url_original, url_processed, confidence)
     except Exception as e:
         raise Exception(f"Error al insertar detección en base de datos: {e}")
-    
+
     finally:
         await conn.close()
     return user.email
+
 
 async def create_user(email: str, password: str, role: str):
     hashed_password = pwd_context.hash(password)
@@ -366,6 +265,7 @@ async def create_user(email: str, password: str, role: str):
         await conn.close()
     return email
 
+
 async def update_password(user: mod.User, password: str):
     hashed_password = pwd_context.hash(password)
     conn = await get_database_connection()
@@ -375,6 +275,7 @@ async def update_password(user: mod.User, password: str):
     finally:
         await conn.close()
     return user.email
+
 
 async def statistics(current_user: mod.User, user_id: int | None = None):
     conn = await get_database_connection()
@@ -390,7 +291,8 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
                 return results
         elif current_user.role == "user":
             if user_id:
-                raise HTTPException(status_code=400, detail="Permissions required")
+                raise HTTPException(
+                    status_code=400, detail="Permissions required")
             else:
                 query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections FROM results WHERE user_id = $1"
                 results = await conn.fetch(query, current_user.id)
@@ -399,6 +301,7 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
         return results
     finally:
         await conn.close()
+
 
 async def base64_to_image(base64_string: str) -> np.ndarray:
     try:
@@ -411,7 +314,8 @@ async def base64_to_image(base64_string: str) -> np.ndarray:
         return image
     except Exception as e:
         raise Exception(f"Error al convertir la imagen: {e}")
-        
+
+
 async def base64_to_images(base64_strings: List[str]) -> List[np.ndarray]:
     try:
         images = []
@@ -426,6 +330,7 @@ async def base64_to_images(base64_strings: List[str]) -> List[np.ndarray]:
         return images
     except Exception as e:
         raise Exception(f"Error al convertir las imágenes: {e}")
+
 
 async def guardar_enlaces_en_csv(links):
     # Crea un archivo CSV temporal

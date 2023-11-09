@@ -1,6 +1,6 @@
 from datetime import timedelta
 import json
-from typing import Annotated
+from typing import Annotated, List, Optional
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from fastapi.staticfiles import StaticFiles
@@ -15,11 +15,11 @@ import cv2
 from dotenv import load_dotenv
 import os
 
-import funcs as fc 
+import funcs as fc
 import models as mod
 
 # Cargar variables de entorno
-load_dotenv() 
+load_dotenv()
 
 SQLALCHEMY_DATABASE_URL = os.getenv("SQLALCHEMY_DATABASE_URL")
 
@@ -72,15 +72,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-#@app.get("/")
-#async def root(
+# @app.get("/")
+# async def root(
 #    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)]
-#):
+# ):
 #    user = await fc.get_user_from_db("admin@admin.com")
 #    return user
 
+
 @app.post(
-    "/token", 
+    "/token",
     response_model=mod.Token,
     tags=["Authenticate"]
 )
@@ -103,7 +104,9 @@ async def login_for_access_token(
     return {"access_token": access_token, "token_type": "bearer"}
 
 app.mount("/imagenes", StaticFiles(directory="Resultados"), name="imagenes")
-app.mount("/imagenes_original", StaticFiles(directory="Original"), name="imagenes")
+app.mount("/imagenes_original",
+          StaticFiles(directory="Original"), name="imagenes")
+
 
 @app.post("/user/create", tags=["User"])
 async def create_user(
@@ -115,11 +118,13 @@ async def create_user(
     try:
         await fc.create_user(email, password, role)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error al crear el usuario: {e}")
+        raise HTTPException(
+            status_code=400, detail=f"Error al crear el usuario: {e}")
 
     return {
         status: 'success',
     }
+
 
 @app.patch("/user/update/password", tags=["User"])
 async def update_password(
@@ -129,161 +134,45 @@ async def update_password(
     try:
         await fc.update_password(current_user, password)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al actualizar la contraseña: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error al actualizar la contraseña: {e}")
 
     return {
         "status": 'success',
     }
 
-@app.post(
-    "/detectar_incendio/", 
-    tags=["Individual detection"],
-    responses={
-        # 404: {"model": Message, "description": "The item was not found"},
-        200: {
-            "description": "Item requested by ID",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detecciones": True,
-                        "confianza": 0.8399999737739563,
-                        "imagen_procesada": "tmpyoaewshv.jpg",
-                        "original": "original_tmpyoaewshv.jpg",
-                        "fecha": "2023-10-19",
-                        "hora": "09:33:40.461835",
-                        "GPU": 1
-                    }
-                }
-            },
-        },
-    },
-)
-async def detectar_incendio(
-    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
-    imagen: UploadFile = File(...),
-    confianza: float = Form(...),
-    iou: float = Form(...),
-    cpu: int = Form(...)
-):
-    if not fc.validar_extension(imagen.filename):
-        raise HTTPException(status_code=400, detail="Formato de imagen no permitido")
 
-    try:
-        
-        image = cv2.imread(imagen.file)
-        detecciones, valor_confianza, nombre_resultado, original = await fc.procesar_imagen_single(image, confianza, iou, cpu, current_user)
-        if detecciones == True:
-            await fc.insert_results(current_user, 'simple', 1, 0)
-        else:
-            await fc.insert_results(current_user, 'simple', 0, 1)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al procesar la imagen: {e}")
-
-    ahora = fc.datetime.now()
- 
-    return {
-        "detecciones": detecciones,
-        "confianza": valor_confianza,
-        "imagen_procesada": nombre_resultado,
-        "original": original,
-        "fecha": ahora.date().isoformat(),
-        "hora": ahora.time().isoformat(),
-        "GPU": cpu,
-    }
-
-@app.post(
-    "/detectar_incendio_link/", 
-    tags=["Individual detection"],
-    responses={
-        # 404: {"model": Message, "description": "The item was not found"},
-        200: {
-            "description": "Item requested by ID",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detecciones": True,
-                        "confianza": 0.8399999737739563,
-                        "imagen_procesada": "tmpyoaewshv.jpg",
-                        "original": "original_tmpyoaewshv.jpg",
-                        "fecha": "2023-10-19",
-                        "hora": "09:33:40.461835",
-                        "GPU": 1
-                    }
-                }
-            },
-        },
-    },
-)
-async def detectar_incendio_url(
-    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
-    url: str = Form(...),
-    confianza: float = Form(...),
-    iou: float = Form(...),
-    cpu: int = Form(...)
-):
-    #if not fc.validar_extension(imagen.filename):
-    #    raise HTTPException(status_code=400, detail="Formato de imagen no permitido")
-
-    try:
-        #image = Image.open(imagen.file)
-        detecciones, valor_confianza, nombre_resultado, original = await fc.procesar_imagen_single_link(url, confianza, iou, cpu, current_user)
-        if detecciones == True:
-            await fc.insert_results(current_user, 'simple', 1, 0)
-        else:
-            await fc.insert_results(current_user, 'simple', 0, 1)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al procesar la imagen: {e}")
-
-    ahora = fc.datetime.now()
- 
-    return {
-        "detecciones": detecciones,
-        "confianza": valor_confianza,
-        "imagen_procesada": nombre_resultado,
-        "original": original,
-        "fecha": ahora.date().isoformat(),
-        "hora": ahora.time().isoformat(),
-        "GPU": cpu,
-    }
-
-@app.post("/detectar_incendios_multiples/", tags=["Multiple detection"])
+@app.post("/detectar_incendios/", tags=["Wildfire detection"])
 async def detectar_incendios_multiples(
     current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
-    imagenes: fc.List[UploadFile] = File(...),
+    imagenes: Optional[List[UploadFile]] = File(
+        default=None),  # Cambio aquí para permitir campo vacío
+    imagenes_strings: Optional[List[str]] = Form(
+        default=None),  # Cambio aquí para permitir campo vacío
     confianza: float = Form(...),
     iou: float = Form(...),
     cpu: int = Form(...)
 ):
-    for imagen in imagenes:
-        if not fc.validar_extension(imagen.filename):
-            raise HTTPException(status_code=400, detail="Formato de imagen no permitido")
-    
+    if not imagenes and not imagenes_strings:
+        raise HTTPException(
+            status_code=400, detail="Debe proporcionar al menos un conjunto de imágenes o strings.")
+    if imagenes and all(imagen.filename == "" for imagen in imagenes):
+        imagenes = None  # Tratar como None si todos los nombres de archivo están vacíos
+    if imagenes and imagenes_strings:
+        raise HTTPException(
+            status_code=400, detail="Proporcione solo imágenes o solo strings, no ambos.")
+
+    # Decidir qué lista se va a procesar
+    input_para_procesar = imagenes if imagenes else imagenes_strings
+
     try:
-        result = await fc.procesar_imagen_multiple(imagenes, confianza, iou, cpu, current_user)
+        result = await fc.procesar_imagen_multiple(input_para_procesar, confianza, iou, cpu, current_user)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al procesar las imágenes: {e}")
+        raise HTTPException(
+            status_code=500, detail=f"Error al procesar las imágenes: {e}")
 
     return json.loads(result)
 
-
-"""
-@app.post("/detectar_incendios_multiples_link/", tags=["Multiple detection"])
-async def detectar_incendios_multiples_link(
-    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
-    links: fc.List[str] = Form(...),
-    confianza: float = Form(...),
-    iou: float = Form(...),
-    cpu: int = Form(...)
-):
-    
-    try:
-        result = await fc.procesar_imagen_multiple_links(links, confianza, iou, cpu, current_user)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al procesar las imágenes: {e}")
-
-    return json.loads(result)
-
-"""
 
 @app.get("/statistics/", tags=["Results"])
 async def get_statistics(
@@ -293,78 +182,11 @@ async def get_statistics(
     try:
         statistics = await fc.statistics(current_user, user)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Error al obtener los resultados: {e}")
+        raise HTTPException(
+            status_code=400, detail=f"Error al obtener los resultados: {e}")
 
     return statistics[0]
 
-@app.post(
-    "/detectar_incendio_base64/", 
-    tags=["Individual detection"],
-    responses={
-        # 404: {"model": Message, "description": "The item was not found"},
-        200: {
-            "description": "Item requested by ID",
-            "content": {
-                "application/json": {
-                    "example": {
-                        "detecciones": True,
-                        "confianza": 0.8399999737739563,
-                        "imagen_procesada": "tmpyoaewshv.jpg",
-                        "original": "original_tmpyoaewshv.jpg",
-                        "fecha": "2023-10-19",
-                        "hora": "09:33:40.461835",
-                        "GPU": 1
-                    }
-                }
-            },
-        },
-    },
-)
-async def detectar_incendio(
-    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
-    imagen_base64: str = Form(...),
-    confianza: float = Form(...),
-    iou: float = Form(...),
-    cpu: int = Form(...)
-):   
-    try:
-        image = await fc.base64_to_image(imagen_base64)
-        detecciones, valor_confianza, nombre_resultado, original = fc.procesar_imagen_single(image, confianza, iou, cpu, current_user)
-        if detecciones == True:
-            await fc.insert_results(current_user, 'simple', 1, 0)
-        else:
-            await fc.insert_results(current_user, 'simple', 0, 1)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al procesar la imagen: {e}")
-    
-    ahora = fc.datetime.now()
-
-    return {
-        "detecciones": detecciones,
-        "confianza": valor_confianza,
-        "imagen_procesada": nombre_resultado,
-        "original": original,
-        "fecha": ahora.date().isoformat(),
-        "hora": ahora.time().isoformat(),
-        "GPU": cpu,
-    }
-
-
-@app.post("/detectar_incendios_multiples_base64/", tags=["Multiple detection"])
-async def detectar_incendios_multiples(
-    current_user: Annotated[mod.User, Depends(fc.get_current_active_user)],
-    imagenes: fc.List[str] = Form(...),
-    confianza: float = Form(...),
-    iou: float = Form(...),
-    cpu: int = Form(...)
-):
-    try:
-        imagenes = await fc.base64_to_images(imagenes)
-        result = await fc.procesar_imagen_multiple(imagenes, confianza, iou, cpu, current_user)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error al procesar las imágenes: {e}")
-
-    return json.loads(result)
 
 if __name__ == "__main__":
     import uvicorn
