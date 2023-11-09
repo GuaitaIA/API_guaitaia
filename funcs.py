@@ -59,15 +59,11 @@ async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: f
                         temp_dir, os.path.basename(imagen))
                     with open(image_path, "wb") as buffer:
                         buffer.write(response.content)
-                elif isinstance(imagen, str) and imagen.startswith(('data:image/png;base64', 'data:image/jpeg;base64')):
-                    # La entrada es una cadena en base64
-                    header, encoded = imagen.split(",", 1)
-                    image_data = base64.b64decode(encoded)
-                    # Crear un nombre de archivo único para la imagen
-                    image_path = os.path.join(
-                        temp_dir, f"image_{datetime.now().timestamp()}.png")
+                elif isinstance(imagen, str) and not imagen.startswith('http'):
+                    imagen_temp = base64_to_image(imagen)
+                    image_path = os.path.join(temp_dir, imagen_temp.filename)
                     with open(image_path, "wb") as buffer:
-                        buffer.write(image_data)
+                        shutil.copyfileobj(imagen_temp.file, buffer)
                 else:
                     # La entrada es un objeto de archivo o una ruta de archivo
                     if validar_extension(imagen.filename):
