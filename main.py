@@ -244,7 +244,7 @@ async def detectar_incendios_multiples(
     confianza: float = Form(...),
     # Parámetro de intersección sobre unión (IoU) para el modelo de detección.
     iou: float = Form(...),
-    # Parámetro para indicar el uso de CPUs en el proceso de detección.
+    # Parámetro para indicar el uso de CPU o GPU en el proceso de detección.
     cpu: int = Form(...)
 ):
     """
@@ -259,7 +259,7 @@ async def detectar_incendios_multiples(
     - imagenes_strings: Lista de strings base64 de imágenes (opcional).
     - confianza: Umbral de confianza para la detección.
     - iou: Umbral de IoU para la detección.
-    - cpu: Número de CPUs para procesar la detección.
+    - cpu: 1 para procesar utilizando CPU o 0 para utilizar GPU.
 
     Returns:
     - Un JSON con los resultados de la detección.
