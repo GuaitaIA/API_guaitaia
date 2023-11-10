@@ -69,7 +69,7 @@ async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: f
             processed_image_names.append(os.path.basename(image_path))
 
         # Determinar el dispositivo de procesamiento basado en la entrada del usuario
-        device = "cpu" if cpu == 1 else "cuda"
+        device = "cpu" if cpu == 1 else 0
 
         # Llamada al modelo de predicción con las imágenes procesadas
         predictions = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./",
