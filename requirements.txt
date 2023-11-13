@@ -8,3 +8,5 @@ asyncpg
 sqlalchemy 
 alembic
 psycopg2
+torch
+onnx-runtime
