@@ -250,8 +250,8 @@ async def detectar_incendios_multiples(
     """
     Endpoint para la detección de incendios en múltiples imágenes.
 
-    Acepta imágenes directamente o como strings codificados en base64.
-    Requiere parámetros para la confianza, IoU y el número de CPUs a utilizar.
+    Acepta imágenes directamente, urls a imágenes o como strings codificados en base64.
+    Requiere parámetros para la confianza, IoU y el uso de CPU o GPU.
 
     Args:
     - current_user: Usuario actual que ha pasado la autenticación.
