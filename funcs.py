@@ -116,10 +116,15 @@ async def process_image_input(imagen, temp_dir):
     try:
         if isinstance(imagen, str) and imagen.startswith('http'):
             # Si es una URL, descargar y guardar la imagen
-            response = requests.get(imagen)
-            image_path = os.path.join(temp_dir, os.path.basename(imagen))
-            with open(image_path, "wb") as buffer:
-                buffer.write(response.content)
+            if utils.es_extension_permitida(imagen):
+                response = requests.get(imagen)
+                image_path = os.path.join(temp_dir, os.path.basename(imagen))
+                with open(image_path, "wb") as buffer:
+                    buffer.write(response.content)
+            else:
+                raise ValueError(
+                    "La URL no corresponde a una imagen con extensión permitida.")
+
         elif isinstance(imagen, str) and not imagen.startswith('http'):
             # Si es una cadena base64, decodificar y guardar la imagen
             image_data = base64.b64decode(imagen)
@@ -153,7 +158,7 @@ async def process_prediction(prediction, temp_dir, image_name):
     - Un booleano que indica si hubo detección y la confianza de la detección.
     """
     try:
-        boxes = prediction.boxes.numpy()
+        boxes = prediction.boxes.cpu().numpy()
         if boxes.conf.size > 0:
             # Si hay detección, procesar y guardar la imagen resultante
             conf = round(boxes.conf[0], 2)

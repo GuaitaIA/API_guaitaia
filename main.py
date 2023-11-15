@@ -282,6 +282,9 @@ async def detectar_incendios_multiples(
         raise HTTPException(
             status_code=400, detail="Proporcione solo imágenes o solo strings, no ambos.")
 
+    if imagenes_strings:
+        imagenes_strings = imagenes_strings[0].split(',')
+
     # Elegir el conjunto de entrada para procesar.
     input_para_procesar = imagenes if imagenes else imagenes_strings
 

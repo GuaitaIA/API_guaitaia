@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 import os
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
+from urllib.parse import urlparse
 
 # Carga de variables de entorno.
 load_dotenv()
@@ -410,3 +411,35 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
     finally:
         # Cerrar la conexión con la base de datos.
         await conn.close()
+
+
+def es_extension_permitida(url):
+    """
+    Verifica si la extensión de archivo en una URL está en la lista de extensiones permitidas.
+
+    Args:
+    - url (str): La URL de la que se verificará la extensión.
+
+    Returns:
+    - bool: True si la extensión de archivo está en la lista de extensiones permitidas, False en caso contrario.
+
+    Raises:
+    - None
+
+    Example:
+    >>> es_extension_permitida("http://example.com/file.jpg")
+    True
+    """
+
+    try:
+        # Parsear la URL para obtener el componente de path
+        path = urlparse(url).path
+
+        # Obtener la extensión del archivo de la URL y eliminar el punto
+        ext = os.path.splitext(path)[1].lstrip('.')
+
+        # Verificar si la extensión (sin el punto) está en la lista de extensiones permitidas
+        return ext in EXTENSIONES_PERMITIDAS
+    except Exception as e:
+        print(f"Error al verificar la extensión permitida: {e}")
+        return False
