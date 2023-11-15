@@ -73,7 +73,7 @@ async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: f
 
         # Llamada al modelo de predicción con las imágenes procesadas
         predictions = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./",
-                                    name="Resultados", exist_ok=True, device=device, imgsz=(800, 480))
+                                    name="Resultados", exist_ok=True, device=device, imgsz=(800, 480), augment=True)
 
         # Lista para almacenar los resultados de las detecciones
         detecciones = []
