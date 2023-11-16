@@ -235,7 +235,7 @@ async def update_password(
 @app.post("/detectar_incendios/", tags=["Wildfire detection"])
 async def detectar_incendios_multiples(
     # Usuario actual autenticado mediante token OAuth2.
-    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
+    current_user: Annotated[mod.User, Depends(utils.get_current_user_time)],
     # Lista opcional de imágenes subidas para la detección de incendios.
     imagenes: Optional[List[UploadFile]] = File(default=None),
     # Lista opcional de strings base64 de imágenes para la detección de incendios.

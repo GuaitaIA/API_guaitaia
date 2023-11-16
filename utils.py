@@ -187,33 +187,45 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> mod
         raise credentials_exception
     return user
 
-
-# Función para obtener el usuario activo actual.
-async def get_current_active_user(
+# Funcion para validar si el usario puede ejectuar la api para detectar segun la hora de la solicitud.
+async def get_current_user_time(
     current_user: Annotated[mod.User, Depends(get_current_user)]
 ) -> mod.User:
     """
-    Verifica si el usuario actual está activo.
+    Verifica si el usuario actual puede ejecutar la API de detección.
 
     Args:
     - current_user (User): Instancia del usuario actual obtenida de la dependencia.
 
     Returns:
-    - User: La instancia del usuario si está activo.
+    - User: La instancia del usuario si puede ejecutar la API.
 
     Raises:
-    - HTTPException: Si el usuario está inactivo.
+    - HTTPException: Si el usuario no puede ejecutar la API.
     """
-    # Verificar si el usuario actual está marcado como activo.
+    # consulta a la db ara recuperar la zona horaria del usuario
+    conn = await get_database_connection()
+    try:
+        query = "SELECT * FROM zones WHERE id = $1"
+        timezone = await conn.fetchval(query, current_user.zones_id)
+    finally:
+        await conn.close()
+    # Obtener la fecha y hora actual.
+    dateTime = datetime.now()
+    # Obtener la hora actual en la zona horaria del usuario.
+    dateTime = dateTime.astimezone(timezone.timezone)
+    # Obtener la hora actual en formato de 24 horas.
+    hora = dateTime.strftime("%H")
+    # Verificar si la hora actual está entre las 6:00 y las 18:00.
+    if int(hora) < timezone.start_time or int(hora) > timezone.end_time:
+        # Si no está entre las 6:00 y las 18:00, lanza una excepción HTTP.
+        raise HTTPException(status_code=400, detail="Not allowed at this time")
+    # Si está entre las 6:00 y las 18:00, devuelve el usuario actual.
     if current_user.is_active is False:
-        # Si no está activo, lanza una excepción HTTP.
         raise HTTPException(status_code=400, detail="Inactive user")
-    # Si está activo, devuelve el usuario actual.
     return current_user
 
 # Función para verificar si el usuario actual es superadministrador.
-
-
 async def get_current_user_is_superadmin(
     current_user: Annotated[mod.User, Depends(get_current_user)]
 ) -> mod.User:
