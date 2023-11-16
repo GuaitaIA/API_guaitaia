@@ -9,6 +9,7 @@ import os
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from urllib.parse import urlparse
+import pytz
 
 # Carga de variables de entorno.
 load_dotenv()
@@ -207,22 +208,49 @@ async def get_current_user_time(
     conn = await get_database_connection()
     try:
         query = "SELECT * FROM zones WHERE id = $1"
-        timezone = await conn.fetchval(query, current_user.zones_id)
+        timezone = await conn.fetch(query, current_user.zones_id)
     finally:
         await conn.close()
     # Obtener la fecha y hora actual.
     dateTime = datetime.now()
     # Obtener la hora actual en la zona horaria del usuario.
-    dateTime = dateTime.astimezone(timezone.timezone)
+    timezoneM = mod.Zones(**timezone[0])
+    user_timezone = pytz.timezone(timezoneM.timezone)
+
+    # Obtener la hora actual en la zona horaria del usuario.
+    dateTime = dateTime.astimezone(user_timezone)
     # Obtener la hora actual en formato de 24 horas.
     hora = dateTime.strftime("%H")
     # Verificar si la hora actual está entre las 6:00 y las 18:00.
-    if int(hora) < timezone.start_time or int(hora) > timezone.end_time:
+    if int(hora) < timezoneM.start_time or int(hora) >= timezoneM.end_time:
         # Si no está entre las 6:00 y las 18:00, lanza una excepción HTTP.
         raise HTTPException(status_code=400, detail="Not allowed at this time")
     # Si está entre las 6:00 y las 18:00, devuelve el usuario actual.
     if current_user.is_active is False:
         raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
+
+# Función para obtener el usuario activo actual.
+async def get_current_active_user(
+    current_user: Annotated[mod.User, Depends(get_current_user)]
+) -> mod.User:
+    """
+    Verifica si el usuario actual está activo.
+
+    Args:
+    - current_user (User): Instancia del usuario actual obtenida de la dependencia.
+
+    Returns:
+    - User: La instancia del usuario si está activo.
+
+    Raises:
+    - HTTPException: Si el usuario está inactivo.
+    """
+    # Verificar si el usuario actual está marcado como activo.
+    if current_user.is_active is False:
+        # Si no está activo, lanza una excepción HTTP.
+        raise HTTPException(status_code=400, detail="Inactive user")
+    # Si está activo, devuelve el usuario actual.
     return current_user
 
 # Función para verificar si el usuario actual es superadministrador.
@@ -399,12 +427,15 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
         if current_user.role == "superadmin":
             # Si se proporciona un user_id, recuperar estadísticas de ese usuario.
             if user_id:
-                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections FROM results WHERE user_id = $1"
-                results = await conn.fetch(query, user_id)
+                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections, SUM(not_detections) + SUM(detections) as total_sum FROM results WHERE user_id = $1"
+                results = await conn.fetch(query)
             # De lo contrario, recuperar estadísticas generales de todos los usuarios.
             else:
-                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections FROM results"
+                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections, SUM(not_detections) + SUM(detections) as total_sum FROM results"
                 results = await conn.fetch(query)
+
+                query2 = "SELECT DATE_TRUNC('hour', date) AS hour, SUM(detections) AS total_detections, SUM(not_detections) AS total_not_detections FROM results WHERE DATE(date) = '2023-11-04' GROUP BY DATE_TRUNC('hour', date) ORDER BY DATE_TRUNC('hour', date);"
+                results2 = await conn.fetch(query2)
         # Verificar si el usuario actual tiene rol de 'user'.
         elif current_user.role == "user":
             # Si se proporciona un user_id, lanzar una excepción, ya que no debería acceder a estadísticas de otros usuarios.
@@ -419,7 +450,7 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
         else:
             raise HTTPException(status_code=400, detail="Permissions required")
         # Devolver las estadísticas obtenidas.
-        return results
+        return results, results2
     finally:
         # Cerrar la conexión con la base de datos.
         await conn.close()

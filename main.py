@@ -325,14 +325,14 @@ async def get_statistics(
 
     try:
         # Obtener estadísticas usando la función de utilidad.
-        statistics = await utils.statistics(current_user, user)
+            statistics, statics2 = await utils.statistics(current_user, user)
     except Exception as e:
         # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
         raise HTTPException(
             status_code=400, detail=f"Error al obtener los resultados: {e}")
 
     # Devolver el primer elemento de la lista de estadísticas.
-    return statistics[0]
+    return statistics, statics2
 
 
 if __name__ == "__main__":
