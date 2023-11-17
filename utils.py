@@ -460,6 +460,34 @@ async def statistics(current_user: mod.User, user_id: int | None = None, date: d
         # Cerrar la conexión con la base de datos.
         await conn.close()
 
+async def get_results_dates(current_user: mod.User):
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            query = "SELECT DATE(date) AS date FROM detections GROUP BY DATE(date)"
+            results = await conn.fetch(query)
+            print(results)
+        elif current_user.role == "user":
+            query = "SELECT DISTINCT date FROM results WHERE user_id = $1 ORDER BY date DESC"
+            results = await conn.fetch(query, current_user.id)
+        return results
+    finally:
+        await conn.close()
+
+async def get_results_images_date(current_user: mod.User, date: datetime | None = None):
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            date = datetime.strptime(date, '%Y-%m-%d').date()
+            query = "SELECT url_processed FROM detections WHERE DATE(date) = $1"
+            results = await conn.fetch(query, date)
+        elif current_user.role == "user":
+            date = datetime.strptime(date, '%Y-%m-%d').date()
+            query = "SELECT url_original, url_processed, date FROM detections WHERE user_id = $1 AND DATE(date) = $2"
+            results = await conn.fetch(query, current_user.id, date)
+        return results
+    finally:
+        await conn.close()
 
 def es_extension_permitida(url):
     """
