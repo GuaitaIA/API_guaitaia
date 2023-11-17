@@ -479,7 +479,7 @@ async def get_results_images_date(current_user: mod.User, date: datetime | None 
     try:
         if current_user.role == "superadmin":
             date = datetime.strptime(date, '%Y-%m-%d').date()
-            query = "SELECT url_processed FROM detections WHERE DATE(date) = $1"
+            query = "SELECT url_processed, positive FROM detections WHERE DATE(date) = $1"
             results = await conn.fetch(query, date)
         elif current_user.role == "user":
             date = datetime.strptime(date, '%Y-%m-%d').date()
