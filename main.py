@@ -305,6 +305,7 @@ async def get_statistics(
     current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
     # ID del usuario opcional para filtrar estadísticas; None por defecto.
     user: Optional[int] = None,
+    date: Optional[str] = None
 ):
     """
     Endpoint para obtener estadísticas.
@@ -325,7 +326,7 @@ async def get_statistics(
 
     try:
         # Obtener estadísticas usando la función de utilidad.
-            statistics, statics2 = await utils.statistics(current_user, user)
+            statistics, statics2 = await utils.statistics(current_user, user, date)
     except Exception as e:
         # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
         raise HTTPException(

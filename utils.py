@@ -403,7 +403,7 @@ async def update_password(user: mod.User, password: str):
     return user.email
 
 
-async def statistics(current_user: mod.User, user_id: int | None = None):
+async def statistics(current_user: mod.User, user_id: int | None = None, date: datetime | None = None):
     """
     Recupera estadísticas de detección de la base de datos.
 
@@ -434,8 +434,13 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
                 query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections, SUM(not_detections) + SUM(detections) as total_sum FROM results"
                 results = await conn.fetch(query)
 
-                query2 = "SELECT DATE_TRUNC('hour', date) AS hour, SUM(detections) AS total_detections, SUM(not_detections) AS total_not_detections FROM results WHERE DATE(date) = '2023-11-04' GROUP BY DATE_TRUNC('hour', date) ORDER BY DATE_TRUNC('hour', date);"
-                results2 = await conn.fetch(query2)
+                if date is None:
+                    date = datetime.now().date()
+                else:
+                    date = datetime.strptime(date, '%Y-%m-%d').date()
+
+                query2 = "SELECT DATE_TRUNC('hour', date) AS hour, SUM(detections) AS total_detections, SUM(not_detections) AS total_not_detections FROM results WHERE DATE(date) = $1 GROUP BY DATE_TRUNC('hour', date) ORDER BY DATE_TRUNC('hour', date);"
+                results2 = await conn.fetch(query2, date)
         # Verificar si el usuario actual tiene rol de 'user'.
         elif current_user.role == "user":
             # Si se proporciona un user_id, lanzar una excepción, ya que no debería acceder a estadísticas de otros usuarios.
