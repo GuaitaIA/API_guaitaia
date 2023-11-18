@@ -479,11 +479,11 @@ async def get_results_images_date(current_user: mod.User, date: datetime | None 
     try:
         if current_user.role == "superadmin":
             date = datetime.strptime(date, '%Y-%m-%d').date()
-            query = "SELECT url_processed, positive FROM detections WHERE DATE(date) = $1"
+            query = "SELECT id, url_processed, positive FROM detections WHERE DATE(date) = $1 ORDER BY id DESC"
             results = await conn.fetch(query, date)
         elif current_user.role == "user":
             date = datetime.strptime(date, '%Y-%m-%d').date()
-            query = "SELECT url_original, url_processed, date FROM detections WHERE user_id = $1 AND DATE(date) = $2"
+            query = "SELECT url_original, url_processed, date FROM detections WHERE user_id = $1 AND DATE(date) = $2 ORDER BY id DESC"
             results = await conn.fetch(query, current_user.id, date)
         return results
     finally:
@@ -519,3 +519,15 @@ def es_extension_permitida(url):
     except Exception as e:
         print(f"Error al verificar la extensión permitida: {e}")
         return False
+
+async def update_results_images_status(current_user: mod.User, id: int, positive: bool):
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            query = "UPDATE detections SET positive = $1 WHERE id = $2"
+            await conn.execute(query, positive, id)
+            return True
+        elif current_user.role == "user":
+            raise HTTPException(status_code=400, detail="Permissions required")
+    finally:
+        await conn.close()

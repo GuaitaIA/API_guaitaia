@@ -382,6 +382,30 @@ async def get_results_images_date(
     # Devolver el primer elemento de la lista de estadísticas.
     return images
 
+@app.put("/results/images/status", tags=["Results"])
+async def update_results_images_status(
+    # Usuario actual autenticado mediante token OAuth2.
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
+    id: Optional[int] = None,
+    status: Optional[str] = None
+):
+    """
+    Endpoint para actualizar el estado de una imagen.
+
+    Returns:
+    - Un JSON con las imágenes de una fecha.
+    """
+    try:
+        # Obtener estadísticas usando la función de utilidad.
+            result = await utils.update_results_images_status(current_user, id, status)
+    except Exception as e:
+        # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
+        raise HTTPException(
+            status_code=400, detail=f"Error al actualizar el estado de la imagen: {e}")
+
+    # Devolver el primer elemento de la lista de estadísticas.
+    return result
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=9000)
