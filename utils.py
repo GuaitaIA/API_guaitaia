@@ -464,7 +464,7 @@ async def get_results_dates(current_user: mod.User):
     conn = await get_database_connection()
     try:
         if current_user.role == "superadmin":
-            query = "SELECT DATE(date) AS date FROM detections GROUP BY DATE(date)"
+            query = "SELECT DATE(date) AS date FROM detections GROUP BY DATE(date) ORDER BY DATE(date) DESC"
             results = await conn.fetch(query)
             print(results)
         elif current_user.role == "user":
