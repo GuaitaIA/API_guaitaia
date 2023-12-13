@@ -9,6 +9,7 @@ import os
 from fastapi.security import OAuth2PasswordBearer
 from passlib.context import CryptContext
 from urllib.parse import urlparse
+import pytz
 
 # Carga de variables de entorno.
 load_dotenv()
@@ -187,6 +188,47 @@ async def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]) -> mod
         raise credentials_exception
     return user
 
+# Funcion para validar si el usario puede ejectuar la api para detectar segun la hora de la solicitud.
+async def get_current_user_time(
+    current_user: Annotated[mod.User, Depends(get_current_user)]
+) -> mod.User:
+    """
+    Verifica si el usuario actual puede ejecutar la API de detección.
+
+    Args:
+    - current_user (User): Instancia del usuario actual obtenida de la dependencia.
+
+    Returns:
+    - User: La instancia del usuario si puede ejecutar la API.
+
+    Raises:
+    - HTTPException: Si el usuario no puede ejecutar la API.
+    """
+    # consulta a la db ara recuperar la zona horaria del usuario
+    conn = await get_database_connection()
+    try:
+        query = "SELECT * FROM zones WHERE id = $1"
+        timezone = await conn.fetch(query, current_user.zones_id)
+    finally:
+        await conn.close()
+    # Obtener la fecha y hora actual.
+    dateTime = datetime.now()
+    # Obtener la hora actual en la zona horaria del usuario.
+    timezoneM = mod.Zones(**timezone[0])
+    user_timezone = pytz.timezone(timezoneM.timezone)
+
+    # Obtener la hora actual en la zona horaria del usuario.
+    dateTime = dateTime.astimezone(user_timezone)
+    # Obtener la hora actual en formato de 24 horas.
+    hora = dateTime.strftime("%H")
+    # Verificar si la hora actual está entre las 6:00 y las 18:00.
+    if int(hora) < timezoneM.start_time or int(hora) >= timezoneM.end_time:
+        # Si no está entre las 6:00 y las 18:00, lanza una excepción HTTP.
+        raise HTTPException(status_code=400, detail="Not allowed at this time")
+    # Si está entre las 6:00 y las 18:00, devuelve el usuario actual.
+    if current_user.is_active is False:
+        raise HTTPException(status_code=400, detail="Inactive user")
+    return current_user
 
 # Función para obtener el usuario activo actual.
 async def get_current_active_user(
@@ -212,8 +254,6 @@ async def get_current_active_user(
     return current_user
 
 # Función para verificar si el usuario actual es superadministrador.
-
-
 async def get_current_user_is_superadmin(
     current_user: Annotated[mod.User, Depends(get_current_user)]
 ) -> mod.User:
@@ -363,7 +403,7 @@ async def update_password(user: mod.User, password: str):
     return user.email
 
 
-async def statistics(current_user: mod.User, user_id: int | None = None):
+async def statistics(current_user: mod.User, user_id: int | None = None, date: datetime | None = None):
     """
     Recupera estadísticas de detección de la base de datos.
 
@@ -387,12 +427,20 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
         if current_user.role == "superadmin":
             # Si se proporciona un user_id, recuperar estadísticas de ese usuario.
             if user_id:
-                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections FROM results WHERE user_id = $1"
-                results = await conn.fetch(query, user_id)
+                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections, SUM(not_detections) + SUM(detections) as total_sum FROM results WHERE user_id = $1"
+                results = await conn.fetch(query)
             # De lo contrario, recuperar estadísticas generales de todos los usuarios.
             else:
-                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections FROM results"
+                query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections, SUM(not_detections) + SUM(detections) as total_sum FROM results"
                 results = await conn.fetch(query)
+
+                if date is None:
+                    date = datetime.now().date()
+                else:
+                    date = datetime.strptime(date, '%Y-%m-%d').date()
+
+                query2 = "SELECT DATE_TRUNC('hour', date) AS hour, SUM(detections) AS total_detections, SUM(not_detections) AS total_not_detections FROM results WHERE DATE(date) = $1 GROUP BY DATE_TRUNC('hour', date) ORDER BY DATE_TRUNC('hour', date);"
+                results2 = await conn.fetch(query2, date)
         # Verificar si el usuario actual tiene rol de 'user'.
         elif current_user.role == "user":
             # Si se proporciona un user_id, lanzar una excepción, ya que no debería acceder a estadísticas de otros usuarios.
@@ -407,11 +455,39 @@ async def statistics(current_user: mod.User, user_id: int | None = None):
         else:
             raise HTTPException(status_code=400, detail="Permissions required")
         # Devolver las estadísticas obtenidas.
-        return results
+        return results, results2
     finally:
         # Cerrar la conexión con la base de datos.
         await conn.close()
 
+async def get_results_dates(current_user: mod.User):
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            query = "SELECT DATE(date) AS date FROM detections GROUP BY DATE(date) ORDER BY DATE(date) DESC"
+            results = await conn.fetch(query)
+            print(results)
+        elif current_user.role == "user":
+            query = "SELECT DISTINCT date FROM results WHERE user_id = $1 ORDER BY date DESC"
+            results = await conn.fetch(query, current_user.id)
+        return results
+    finally:
+        await conn.close()
+
+async def get_results_images_date(current_user: mod.User, date: datetime | None = None):
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            date = datetime.strptime(date, '%Y-%m-%d').date()
+            query = "SELECT id, url_processed, positive FROM detections WHERE DATE(date) = $1 ORDER BY id DESC"
+            results = await conn.fetch(query, date)
+        elif current_user.role == "user":
+            date = datetime.strptime(date, '%Y-%m-%d').date()
+            query = "SELECT url_original, url_processed, date FROM detections WHERE user_id = $1 AND DATE(date) = $2 ORDER BY id DESC"
+            results = await conn.fetch(query, current_user.id, date)
+        return results
+    finally:
+        await conn.close()
 
 def es_extension_permitida(url):
     """
@@ -443,3 +519,15 @@ def es_extension_permitida(url):
     except Exception as e:
         print(f"Error al verificar la extensión permitida: {e}")
         return False
+
+async def update_results_images_status(current_user: mod.User, id: int, positive: bool):
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            query = "UPDATE detections SET positive = $1 WHERE id = $2"
+            await conn.execute(query, positive, id)
+            return True
+        elif current_user.role == "user":
+            raise HTTPException(status_code=400, detail="Permissions required")
+    finally:
+        await conn.close()

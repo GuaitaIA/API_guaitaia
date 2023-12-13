@@ -82,6 +82,11 @@ async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: f
             deteccion, conf = await process_prediction(prediction, temp_dir, processed_image_names[index])
             if deteccion:
                 countDetections += 1
+                
+                original = "original_" + \
+                processed_image_names[index] + ".webp"
+                procesada = processed_image_names[index] + ".webp"
+                await utils.insert_detection(current_user, datetime.now(), original, procesada, conf)
             else:
                 countNotDetections += 1
 

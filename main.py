@@ -235,7 +235,7 @@ async def update_password(
 @app.post("/detectar_incendios/", tags=["Wildfire detection"])
 async def detectar_incendios_multiples(
     # Usuario actual autenticado mediante token OAuth2.
-    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
+    current_user: Annotated[mod.User, Depends(utils.get_current_user_time)],
     # Lista opcional de imágenes subidas para la detección de incendios.
     imagenes: Optional[List[UploadFile]] = File(default=None),
     # Lista opcional de strings base64 de imágenes para la detección de incendios.
@@ -305,6 +305,7 @@ async def get_statistics(
     current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
     # ID del usuario opcional para filtrar estadísticas; None por defecto.
     user: Optional[int] = None,
+    date: Optional[str] = None
 ):
     """
     Endpoint para obtener estadísticas.
@@ -325,15 +326,85 @@ async def get_statistics(
 
     try:
         # Obtener estadísticas usando la función de utilidad.
-        statistics = await utils.statistics(current_user, user)
+            statistics, statics2 = await utils.statistics(current_user, user, date)
     except Exception as e:
         # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
         raise HTTPException(
             status_code=400, detail=f"Error al obtener los resultados: {e}")
 
     # Devolver el primer elemento de la lista de estadísticas.
-    return statistics[0]
+    return statistics, statics2
 
+@app.get("/results/dates", tags=["Results"])
+async def get_results_dates(
+    # Usuario actual autenticado mediante token OAuth2.
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)]
+):
+    """
+    Endpoint para obtener las fechas en las que hay resultados.
+
+    Returns:
+    - Un JSON con las fechas en las que hay resultados.
+    """
+
+    try:
+        # Obtener estadísticas usando la función de utilidad.
+            dates = await utils.get_results_dates(current_user)
+    except Exception as e:
+        # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
+        raise HTTPException(
+            status_code=400, detail=f"Error al obtener las fechas: {e}")
+
+    # Devolver el primer elemento de la lista de estadísticas.
+    return dates
+
+@app.get("/results/images", tags=["Results"])
+async def get_results_images_date(
+    # Usuario actual autenticado mediante token OAuth2.
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
+    date: Optional[str] = None
+):
+    """
+    Endpoint para obtener las imágenes de una fecha.
+
+    Returns:
+    - Un JSON con las imágenes de una fecha.
+    """
+    print(date)
+    try:
+        # Obtener estadísticas usando la función de utilidad.
+            images = await utils.get_results_images_date(current_user, date)
+    except Exception as e:
+        # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
+        raise HTTPException(
+            status_code=400, detail=f"Error al obtener las imágenes: {e}")
+
+    # Devolver el primer elemento de la lista de estadísticas.
+    return images
+
+@app.put("/results/images/status", tags=["Results"])
+async def update_results_images_status(
+    # Usuario actual autenticado mediante token OAuth2.
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
+    id: Optional[int] = None,
+    status: Optional[str] = None
+):
+    """
+    Endpoint para actualizar el estado de una imagen.
+
+    Returns:
+    - Un JSON con las imágenes de una fecha.
+    """
+    try:
+        # Obtener estadísticas usando la función de utilidad.
+            result = await utils.update_results_images_status(current_user, id, status)
+    except Exception as e:
+        # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
+        raise HTTPException(
+            status_code=400, detail=f"Error al actualizar el estado de la imagen: {e}")
+
+    # Devolver el primer elemento de la lista de estadísticas.
+    return result
 
 if __name__ == "__main__":
     import uvicorn
