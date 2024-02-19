@@ -354,7 +354,7 @@ async def insert_detection(user: mod.User, date: datetime, url_original: str, ur
     return user.email
 
 
-async def create_user(email: str, password: str, role: str):
+async def create_user(email: str, password: str, role: str, zones_id: int):
     """
     Crea un nuevo usuario en la base de datos.
 
@@ -375,8 +375,8 @@ async def create_user(email: str, password: str, role: str):
     if user:
         raise HTTPException(status_code=400, detail="Email already registered")
     try:
-        query = "INSERT INTO users (email, hashed_password, role, is_active) VALUES ($1, $2, $3, $4)"
-        await conn.execute(query, email, hashed_password, role, True)
+        query = "INSERT INTO users (email, hashed_password, role, is_active, zones_id) VALUES ($1, $2, $3, $4, $5)"
+        await conn.execute(query, email, hashed_password, role, True, zones_id)
     finally:
         await conn.close()
     return email
@@ -434,6 +434,8 @@ async def statistics(current_user: mod.User, user_id: int | None = None, date: d
                 query = "SELECT sum(not_detections) as not_detections, sum(detections) as detections, SUM(not_detections) + SUM(detections) as total_sum FROM results"
                 results = await conn.fetch(query)
 
+                query3 = "SELECT SUM(CASE WHEN positive = 'true' THEN 1 ELSE 0 END) AS true_detections, SUM(CASE WHEN positive = 'false' THEN 1 ELSE 0 END) AS false_detections FROM detections;"
+                result3 = await conn.fetch(query3)
                 if date is None:
                     date = datetime.now().date()
                 else:
@@ -455,7 +457,7 @@ async def statistics(current_user: mod.User, user_id: int | None = None, date: d
         else:
             raise HTTPException(status_code=400, detail="Permissions required")
         # Devolver las estadísticas obtenidas.
-        return results, results2
+        return results, results2, result3
     finally:
         # Cerrar la conexión con la base de datos.
         await conn.close()
@@ -526,6 +528,33 @@ async def update_results_images_status(current_user: mod.User, id: int, positive
         if current_user.role == "superadmin":
             query = "UPDATE detections SET positive = $1 WHERE id = $2"
             await conn.execute(query, positive, id)
+            return True
+        elif current_user.role == "user":
+            raise HTTPException(status_code=400, detail="Permissions required")
+    finally:
+        await conn.close()
+
+# get users
+async def get_users(current_user: mod.User):
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            # select all users join zones
+            query = "SELECT users.id, users.email, users.role, users.is_active, zones.timezone FROM users JOIN zones ON users.zones_id = zones.id"
+            results = await conn.fetch(query)
+        elif current_user.role == "user":
+            raise HTTPException(status_code=400, detail="Permissions required")
+        return results
+    finally:
+        await conn.close()
+
+# delete user
+async def delete_user(current_user: mod.User, id: int):
+    conn = await get_database_connection()
+    try:
+        if current_user.role == "superadmin":
+            query = "DELETE FROM users WHERE id = $1"
+            await conn.execute(query, id)
             return True
         elif current_user.role == "user":
             raise HTTPException(status_code=400, detail="Permissions required")

@@ -154,6 +154,37 @@ app.mount("/imagenes", StaticFiles(directory="Resultados"),
 app.mount("/imagenes_original", StaticFiles(directory="Original"),
           name="imagenes_originales")
 
+# get users
+@app.get("/users", tags=["User"])
+async def get_users(
+    # Usuario actual autenticado mediante token OAuth2.
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)]
+):
+    """
+    Endpoint para obtener todos los usuarios.
+
+    Requiere la autenticación del usuario actual.
+
+    Args:
+    - current_user: Usuario actual que ha pasado la autenticación.
+
+    Returns:
+    - Un JSON con todos los usuarios.
+
+    Raises:
+    - HTTPException: Si hay un error al obtener los usuarios.
+    """
+
+    try:
+        # Obtener todos los usuarios utilizando una función de utilidad.
+        users = await utils.get_users(current_user)
+    except Exception as e:
+        # Lanzar una excepción HTTP si ocurre un error al obtener los usuarios.
+        raise HTTPException(
+            status_code=400, detail=f"Error al obtener los usuarios: {e}")
+
+    # Devolver una lista de usuarios en formato JSON.
+    return users
 
 @app.post("/user/create", tags=["User"])
 async def create_user(
@@ -164,7 +195,9 @@ async def create_user(
     # Contraseña para el nuevo usuario.
     password: str = Form(...),
     # Rol para el nuevo usuario.
-    role: str = Form(...)
+    role: str = Form(...),
+    # Zona horaria para el nuevo usuario.
+    zones_id: int = Form(...),
 ):
     """
     Endpoint para crear un nuevo usuario.
@@ -187,13 +220,49 @@ async def create_user(
 
     # Intentar crear un nuevo usuario utilizando una función de utilidad.
     try:
-        await utils.create_user(email, password, role)
+        await utils.create_user(email, password, role, zones_id)
     except Exception as e:
         # Lanzar una excepción HTTP si ocurre un error durante la creación.
         raise HTTPException(
             status_code=400, detail=f"Error al crear el usuario: {e}")
 
     # Devolver una respuesta de éxito si la creación es exitosa.
+    return {"status": 'success'}
+
+# delete user
+# url /user/11
+@app.delete("/user/{user_id}", tags=["User"])
+async def delete_user(
+    # Usuario actual autenticado como superadministrador.
+    current_user: Annotated[mod.User, Depends(utils.get_current_user_is_superadmin)],
+    # ID del usuario a eliminar.
+    user_id: int
+):
+    """
+    Endpoint para eliminar un usuario.
+
+    Solo puede ser utilizado por superadministradores. Requiere el ID del usuario a eliminar.
+
+    Args:
+    - current_user: Usuario actual, debe ser superadministrador.
+    - user_id: ID del usuario a eliminar.
+
+    Returns:
+    - Un diccionario indicando el estado de la operación.
+
+    Raises:
+    - HTTPException: Si ocurre un error al eliminar el usuario.
+    """
+
+    # Intentar eliminar un usuario utilizando una función de utilidad.
+    try:
+        await utils.delete_user(current_user, user_id)
+    except Exception as e:
+        # Lanzar una excepción HTTP si ocurre un error durante la eliminación.
+        raise HTTPException(
+            status_code=400, detail=f"Error al eliminar el usuario: {e}")
+
+    # Devolver una respuesta de éxito si la eliminación es exitosa.
     return {"status": 'success'}
 
 
@@ -326,14 +395,14 @@ async def get_statistics(
 
     try:
         # Obtener estadísticas usando la función de utilidad.
-            statistics, statics2 = await utils.statistics(current_user, user, date)
+            statistics, statics2, statics3 = await utils.statistics(current_user, user, date)
     except Exception as e:
         # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
         raise HTTPException(
             status_code=400, detail=f"Error al obtener los resultados: {e}")
 
     # Devolver el primer elemento de la lista de estadísticas.
-    return statistics, statics2
+    return statistics, statics2, statics3
 
 @app.get("/results/dates", tags=["Results"])
 async def get_results_dates(
