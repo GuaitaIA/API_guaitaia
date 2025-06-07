@@ -1,12 +1,48 @@
-ultralytics
-fastapi
-typing
-uvicorn
-python-jose[cryptography]
-passlib[bcrypt]
-asyncpg 
-sqlalchemy 
-alembic
-psycopg2
-torch
-onnx-runtime
+# requirements.txt (VERSIÓN COMPLETA ACTUALIZADA - Enero 2025)
+
+# ===== FRAMEWORK WEB =====
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+
+# ===== VALIDACIÓN Y SERIALIZACIÓN =====
+pydantic[email]==2.10.3
+pydantic-settings==2.6.1
+
+# ===== SEGURIDAD Y AUTENTICACIÓN =====
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+
+# ===== BASE DE DATOS =====
+asyncpg==0.30.0
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+
+# ===== MACHINE LEARNING Y COMPUTER VISION =====
+# PyTorch (especificar índice para CUDA si es necesario)
+torch==2.7.1
+torchvision==0.22.1
+
+# YOLO y detección de objetos
+ultralytics==8.3.50
+
+# Procesamiento de imágenes
+opencv-python==4.10.0.84
+Pillow==11.0.0
+
+# ===== UTILIDADES =====
+requests==2.32.3
+python-multipart==0.0.12
+python-dotenv==1.0.1
+pytz==2024.2
+
+# ===== TESTING (OPCIONAL) =====
+pytest==8.3.4
+pytest-asyncio==0.24.0
+httpx==0.28.1
+
+# ===== DESARROLLO (OPCIONAL) =====
+black==24.10.0  # Formateo de código
+isort==5.13.2   # Ordenamiento de imports
+flake8==7.1.1   # Linting
+mypy==1.13.0    # Type checking

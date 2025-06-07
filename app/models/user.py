@@ -1,8 +1,7 @@
+# app/models/user.py
 from sqlalchemy import Column, ForeignKey, String, Integer, Boolean
-from pydantic import BaseModel
-from sqlalchemy.ext.declarative import declarative_base
+from app.core.database import Base
 
-Base = declarative_base()
 class User(Base):
     __tablename__ = "users"
 
@@ -20,14 +19,3 @@ class Zones(Base):
     timezone = Column(String)
     start_time = Column(Integer)
     end_time = Column(Integer)
-
-class Token(BaseModel):
-    access_token: str
-    token_type: str
-
-
-class TokenData(BaseModel):
-    email: str | None = None
-
-#class UserInDB(User):
-#    hashed_password: str
