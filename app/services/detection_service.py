@@ -86,7 +86,7 @@ class DetectionService:
                     # no tengan doble extensión y apunten a los archivos finales
                     original_db_name = f"original_{os.path.splitext(processed_image_names[index])[0]}.webp"
                     processed_db_name = f"{os.path.splitext(processed_image_names[index])[0]}.webp"
-                    await self._insert_detection(current_user, datetime.now(), original_db_name, processed_db_name, conf)
+                    await self._insert_detection(current_user, datetime.now(), original_db_name, processed_db_name, "true", conf)
                 else:
                     count_not_detections += 1
 
@@ -268,15 +268,15 @@ class DetectionService:
         finally:
             await conn.close()
 
-    async def _insert_detection(self, user: User, date: datetime, url_original: str, url_processed: str, confidence: float):
+    async def _insert_detection(self, user: User, date: datetime, url_original: str, url_processed: str, positive: str, confidence: float):
         """Inserta un registro de detección en la base de datos."""
         conn = await get_database_connection()
         try:
             query = """
-                INSERT INTO detections (user_id, date, url_original, url_processed, confidence)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO detections (user_id, date, url_original, url_processed, positive, confidence)
+                VALUES ($1, $2, $3, $4, $5, $6)
             """
-            await conn.execute(query, user.id, date, url_original, url_processed, confidence)
+            await conn.execute(query, user.id, date, url_original, url_processed, positive, confidence)
         except Exception as e:
             raise Exception(f"Error al insertar detección en base de datos: {e}")
         finally:
