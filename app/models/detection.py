@@ -1,5 +1,5 @@
 # app/models/detection.py
-from sqlalchemy import Column, String, Integer, Boolean, DateTime, Float, ForeignKey
+from sqlalchemy import Column, String, Integer, DateTime, Float, ForeignKey
 from app.core.database import Base
 
 class Result(Base):
