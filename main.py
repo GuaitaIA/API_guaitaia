@@ -5,6 +5,18 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.config import settings
 from app.api.v1.api import api_router
+import os
+
+# Directorios que deben existir
+DIRECTORIES_TO_CREATE = ["Resultados", "Original"]
+
+# Verificar y crear directorios si no existen
+for directory in DIRECTORIES_TO_CREATE:
+    if not os.path.exists(directory):
+        os.makedirs(directory)
+        print(f"Directorio '{directory}' creado exitosamente.")
+    else:
+        print(f"Directorio '{directory}' ya existe.")
 
 # Metadatos para etiquetas utilizadas en la documentación de la API OpenAPI
 tags_metadata = [

@@ -4,7 +4,7 @@ import asyncio
 from typing import Generator
 from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock
-from app.main import app
+from main import app
 from app.core.security import get_password_hash
   
 @pytest.fixture(scope="function")
