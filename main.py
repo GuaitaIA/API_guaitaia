@@ -1,53 +1,35 @@
 # Importaciones de librerías estándar de Python
-from datetime import timedelta  # Para manejar diferencias de tiempo
-import json  # Para manejar datos en formato JSON
-import os  # Para interactuar con el sistema operativo
+from contextlib import asynccontextmanager
+from datetime import timedelta
+import logging
+import os
 
 # Importaciones para tipado estático
-# Para tipado estático avanzado y anotaciones
 from typing import Annotated, List, Optional
 
 # Importaciones de FastAPI para crear y configurar el servidor web
-# Para la creación de la API y manejo de excepciones y dependencias
 from fastapi import Depends, FastAPI, HTTPException, File, UploadFile, Form, status
-# Para la autenticación OAuth2
 from fastapi.security import OAuth2PasswordRequestForm
-from fastapi.staticfiles import StaticFiles  # Para servir archivos estáticos
-# Para manejar Cross-Origin Resource Sharing (CORS)
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-# Importaciones para manejo de bases de datos con SQLAlchemy
-# Para crear la conexión a la base de datos
-from sqlalchemy import create_engine
-# Para crear la clase base de los modelos de la base de datos
-from sqlalchemy.ext.declarative import declarative_base
-# Para crear una fábrica de sesiones de base de datos
-from sqlalchemy.orm import sessionmaker
-
 # Importaciones para manejo de variables de entorno
-# Para cargar las variables de entorno del archivo .env
 from dotenv import load_dotenv
 
-# Importaciones de módulos locales o personalizados
-import funcs as fc  # Módulo local de funciones (debe existir en el proyecto)
-import models as mod  # Módulo local para modelos (debe existir en el proyecto)
-import utils  # Módulo local de utilidades (debe existir en el proyecto)
+# Importaciones de módulos locales
+import funcs as fc
+import models as mod
+import utils
 
 # Carga de variables de entorno desde un archivo .env
 load_dotenv()
 
+# Configuración de logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Obtener la URL de la base de datos de las variables de entorno.
-SQLALCHEMY_DATABASE_URL = os.getenv("SQLALCHEMY_DATABASE_URL")
-
-# Crear el motor de la base de datos SQLAlchemy con la URL de la base de datos.
-engine = create_engine(SQLALCHEMY_DATABASE_URL)
-
-# Crear una fábrica de sesiones de SQLAlchemy configurada para trabajar con el motor de la base de datos.
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Crear una clase base para los modelos de la base de datos declarativos de SQLAlchemy.
-Base = declarative_base()
+# CORS configurable desde variable de entorno
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "*").split(",")
 
 # Metadatos para etiquetas utilizadas en la documentación de la API OpenAPI.
 tags_metadata = [
@@ -69,42 +51,39 @@ tags_metadata = [
     }
 ]
 
-# Inicializar la aplicación FastAPI con metadatos de la versión y las etiquetas para la documentación OpenAPI.
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await utils.init_db_pool()
+    yield
+    await utils.close_db_pool()
+
+
+# Inicializar la aplicación FastAPI con lifespan y metadatos.
 app = FastAPI(
+    lifespan=lifespan,
     title="GuaitaIA",
     description="Detección de humo de incendios forestales mediante IA",
     version="0.0.1 beta",
     openapi_tags=tags_metadata
 )
 
-# Lista de orígenes permitidos en la política CORS.
-origins = ["*"]
-
-# Configuración del middleware CORS para permitir todas las conexiones entrantes.
+# Configuración del middleware CORS.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,  # Permite todas las fuentes
-    allow_credentials=True,  # Permite cookies/autenticación basada en cabeceras
-    allow_methods=["*"],    # Permite todos los métodos HTTP
-    allow_headers=["*"],    # Permite todas las cabeceras
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=False if ALLOWED_ORIGINS == ["*"] else True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
-
-# @app.get("/")
-# async def root(
-#    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)]
-# ):
-#    user = await utils.get_user_from_db("admin@admin.com")
-#    return user
 
 
 @app.post(
     "/token",
-    response_model=mod.Token,  # Especifica el modelo de respuesta que se espera devolver
-    # Agrupa este endpoint en la documentación bajo 'Authenticate'
+    response_model=mod.Token,
     tags=["Authenticate"]
 )
 async def login_for_access_token(
-    # Depende del formulario OAuth2 estándar para la solicitud de token.
     form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
 ):
     """
@@ -135,7 +114,7 @@ async def login_for_access_token(
         raise HTTPException(status_code=400, detail="Inactive user")
 
     # Define el tiempo de expiración del token de acceso.
-    access_token_expires = timedelta(weeks=utils.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=utils.ACCESS_TOKEN_EXPIRE_MINUTES)
 
     # Crea un token de acceso utilizando los datos del usuario y el tiempo de expiración.
     access_token = utils.create_access_token(
@@ -154,10 +133,9 @@ app.mount("/imagenes", StaticFiles(directory="Resultados"),
 app.mount("/imagenes_original", StaticFiles(directory="Original"),
           name="imagenes_originales")
 
-# get users
+
 @app.get("/users", tags=["User"])
 async def get_users(
-    # Usuario actual autenticado mediante token OAuth2.
     current_user: Annotated[mod.User, Depends(utils.get_current_active_user)]
 ):
     """
@@ -176,27 +154,20 @@ async def get_users(
     """
 
     try:
-        # Obtener todos los usuarios utilizando una función de utilidad.
         users = await utils.get_users(current_user)
     except Exception as e:
-        # Lanzar una excepción HTTP si ocurre un error al obtener los usuarios.
+        logger.exception("Error al obtener los usuarios")
         raise HTTPException(
-            status_code=400, detail=f"Error al obtener los usuarios: {e}")
+            status_code=400, detail="Error al obtener los usuarios")
 
-    # Devolver una lista de usuarios en formato JSON.
     return users
 
 @app.post("/user/create", tags=["User"])
 async def create_user(
-    # Usuario actual autenticado como superadministrador.
     current_user: Annotated[mod.User, Depends(utils.get_current_user_is_superadmin)],
-    # Dirección de correo electrónico para el nuevo usuario.
     email: str = Form(...),
-    # Contraseña para el nuevo usuario.
     password: str = Form(...),
-    # Rol para el nuevo usuario.
     role: str = Form(...),
-    # Zona horaria para el nuevo usuario.
     zones_id: int = Form(...),
 ):
     """
@@ -210,6 +181,7 @@ async def create_user(
     - email: Dirección de correo electrónico del nuevo usuario.
     - password: Contraseña del nuevo usuario.
     - role: Rol del nuevo usuario.
+    - zones_id: Zona del nuevo usuario.
 
     Returns:
     - Un diccionario indicando el estado de la operación.
@@ -218,24 +190,19 @@ async def create_user(
     - HTTPException: Si ocurre un error al crear el usuario.
     """
 
-    # Intentar crear un nuevo usuario utilizando una función de utilidad.
     try:
         await utils.create_user(email, password, role, zones_id)
     except Exception as e:
-        # Lanzar una excepción HTTP si ocurre un error durante la creación.
+        logger.exception("Error al crear el usuario")
         raise HTTPException(
-            status_code=400, detail=f"Error al crear el usuario: {e}")
+            status_code=400, detail="Error al crear el usuario")
 
-    # Devolver una respuesta de éxito si la creación es exitosa.
     return {"status": 'success'}
 
-# delete user
-# url /user/11
+
 @app.delete("/user/{user_id}", tags=["User"])
 async def delete_user(
-    # Usuario actual autenticado como superadministrador.
     current_user: Annotated[mod.User, Depends(utils.get_current_user_is_superadmin)],
-    # ID del usuario a eliminar.
     user_id: int
 ):
     """
@@ -254,23 +221,19 @@ async def delete_user(
     - HTTPException: Si ocurre un error al eliminar el usuario.
     """
 
-    # Intentar eliminar un usuario utilizando una función de utilidad.
     try:
         await utils.delete_user(current_user, user_id)
     except Exception as e:
-        # Lanzar una excepción HTTP si ocurre un error durante la eliminación.
+        logger.exception("Error al eliminar el usuario")
         raise HTTPException(
-            status_code=400, detail=f"Error al eliminar el usuario: {e}")
+            status_code=400, detail="Error al eliminar el usuario")
 
-    # Devolver una respuesta de éxito si la eliminación es exitosa.
     return {"status": 'success'}
 
 
 @app.patch("/user/update/password", tags=["User"])
 async def update_password(
-    # Usuario actual autenticado mediante token OAuth2.
     current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
-    # Nueva contraseña proporcionada a través de un formulario.
     password: str = Form(...)
 ):
     """
@@ -289,32 +252,24 @@ async def update_password(
     - HTTPException: Si hay un error al actualizar la contraseña.
     """
 
-    # Intentar actualizar la contraseña utilizando una función de utilidad.
     try:
         await utils.update_password(current_user, password)
     except Exception as e:
-        # Lanzar una excepción HTTP si ocurre un error durante la actualización.
+        logger.exception("Error al actualizar la contraseña")
         raise HTTPException(
-            status_code=500, detail=f"Error al actualizar la contraseña: {e}")
+            status_code=500, detail="Error al actualizar la contraseña")
 
-    # Devolver una respuesta de éxito si la actualización es exitosa.
     return {"status": 'success'}
 
 
 @app.post("/detectar_incendios/", tags=["Wildfire detection"])
 async def detectar_incendios_multiples(
-    # Usuario actual autenticado mediante token OAuth2.
     current_user: Annotated[mod.User, Depends(utils.get_current_user_time)],
-    # Lista opcional de imágenes subidas para la detección de incendios.
     imagenes: Optional[List[UploadFile]] = File(default=None),
-    # Lista opcional de strings base64 de imágenes para la detección de incendios.
     imagenes_strings: Optional[List[str]] = Form(default=None),
-    # Parámetro de confianza para el modelo de detección.
-    confianza: float = Form(...),
-    # Parámetro de intersección sobre unión (IoU) para el modelo de detección.
-    iou: float = Form(...),
-    # Parámetro para indicar el uso de CPU o GPU en el proceso de detección.
-    cpu: int = Form(...)
+    confianza: float = Form(default=0.5, ge=0.0, le=1.0),
+    iou: float = Form(default=0.5, ge=0.0, le=1.0),
+    cpu: int = Form(default=1, ge=0, le=1)
 ):
     """
     Endpoint para la detección de incendios en múltiples imágenes.
@@ -326,8 +281,8 @@ async def detectar_incendios_multiples(
     - current_user: Usuario actual que ha pasado la autenticación.
     - imagenes: Lista de imágenes subidas (opcional).
     - imagenes_strings: Lista de strings base64 de imágenes (opcional).
-    - confianza: Umbral de confianza para la detección.
-    - iou: Umbral de IoU para la detección.
+    - confianza: Umbral de confianza para la detección (0.0 a 1.0).
+    - iou: Umbral de IoU para la detección (0.0 a 1.0).
     - cpu: 1 para procesar utilizando CPU o 0 para utilizar GPU.
 
     Returns:
@@ -361,18 +316,17 @@ async def detectar_incendios_multiples(
     try:
         result = await fc.procesar_imagen_multiple(input_para_procesar, confianza, iou, cpu, current_user)
     except Exception as e:
+        logger.exception("Error al procesar las imágenes")
         raise HTTPException(
-            status_code=500, detail=f"Error al procesar las imágenes: {e}")
+            status_code=500, detail="Error al procesar las imágenes")
 
-    # Devolver el resultado del procesamiento como JSON.
-    return json.loads(result)
+    # Devolver el resultado del procesamiento directamente.
+    return result
 
 
 @app.get("/statistics/", tags=["Results"])
 async def get_statistics(
-    # Usuario actual autenticado mediante token OAuth2.
     current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
-    # ID del usuario opcional para filtrar estadísticas; None por defecto.
     user: Optional[int] = None,
     date: Optional[str] = None
 ):
@@ -385,6 +339,7 @@ async def get_statistics(
     Args:
     - current_user: Usuario actual que ha pasado la autenticación.
     - user: ID del usuario para el cual se obtendrán las estadísticas (opcional).
+    - date: Fecha para filtrar estadísticas (opcional).
 
     Returns:
     - Un JSON con las estadísticas obtenidas.
@@ -394,19 +349,16 @@ async def get_statistics(
     """
 
     try:
-        # Obtener estadísticas usando la función de utilidad.
-            statistics, statics2, statics3 = await utils.statistics(current_user, user, date)
+        statistics, statics2, statics3 = await utils.statistics(current_user, user, date)
     except Exception as e:
-        # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
+        logger.exception("Error al obtener los resultados")
         raise HTTPException(
-            status_code=400, detail=f"Error al obtener los resultados: {e}")
+            status_code=400, detail="Error al obtener los resultados")
 
-    # Devolver el primer elemento de la lista de estadísticas.
     return statistics, statics2, statics3
 
 @app.get("/results/dates", tags=["Results"])
 async def get_results_dates(
-    # Usuario actual autenticado mediante token OAuth2.
     current_user: Annotated[mod.User, Depends(utils.get_current_active_user)]
 ):
     """
@@ -417,19 +369,16 @@ async def get_results_dates(
     """
 
     try:
-        # Obtener estadísticas usando la función de utilidad.
-            dates = await utils.get_results_dates(current_user)
+        dates = await utils.get_results_dates(current_user)
     except Exception as e:
-        # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
+        logger.exception("Error al obtener las fechas")
         raise HTTPException(
-            status_code=400, detail=f"Error al obtener las fechas: {e}")
+            status_code=400, detail="Error al obtener las fechas")
 
-    # Devolver el primer elemento de la lista de estadísticas.
     return dates
 
 @app.get("/results/images", tags=["Results"])
 async def get_results_images_date(
-    # Usuario actual autenticado mediante token OAuth2.
     current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
     date: Optional[str] = None
 ):
@@ -439,40 +388,35 @@ async def get_results_images_date(
     Returns:
     - Un JSON con las imágenes de una fecha.
     """
-    print(date)
-    try:
-        # Obtener estadísticas usando la función de utilidad.
-            images = await utils.get_results_images_date(current_user, date)
-    except Exception as e:
-        # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
-        raise HTTPException(
-            status_code=400, detail=f"Error al obtener las imágenes: {e}")
 
-    # Devolver el primer elemento de la lista de estadísticas.
+    try:
+        images = await utils.get_results_images_date(current_user, date)
+    except Exception as e:
+        logger.exception("Error al obtener las imágenes")
+        raise HTTPException(
+            status_code=400, detail="Error al obtener las imágenes")
+
     return images
 
 @app.put("/results/images/status", tags=["Results"])
 async def update_results_images_status(
-    # Usuario actual autenticado mediante token OAuth2.
     current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
     id: Optional[int] = None,
-    status: Optional[str] = None
+    positive: Optional[str] = Form(None)
 ):
     """
     Endpoint para actualizar el estado de una imagen.
 
     Returns:
-    - Un JSON con las imágenes de una fecha.
+    - Un JSON con el resultado de la actualización.
     """
     try:
-        # Obtener estadísticas usando la función de utilidad.
-            result = await utils.update_results_images_status(current_user, id, status)
+        result = await utils.update_results_images_status(current_user, id, positive)
     except Exception as e:
-        # Lanzar excepción HTTP con el error específico si falla la obtención de estadísticas.
+        logger.exception("Error al actualizar el estado de la imagen")
         raise HTTPException(
-            status_code=400, detail=f"Error al actualizar el estado de la imagen: {e}")
+            status_code=400, detail="Error al actualizar el estado de la imagen")
 
-    # Devolver el primer elemento de la lista de estadísticas.
     return result
 
 if __name__ == "__main__":

@@ -1,5 +1,7 @@
 from sqlalchemy import Column, ForeignKey, String, Integer, Boolean
 from pydantic import BaseModel
+from typing import Optional, List
+from datetime import datetime
 from sqlalchemy.ext.declarative import declarative_base
 
 Base = declarative_base()
@@ -29,5 +31,26 @@ class Token(BaseModel):
 class TokenData(BaseModel):
     email: str | None = None
 
-#class UserInDB(User):
-#    hashed_password: str
+
+class UserResponse(BaseModel):
+    id: int
+    email: str
+    is_active: bool
+    role: str
+    zones_id: Optional[int] = None
+
+
+class DetectionResponse(BaseModel):
+    detection: bool
+    conf: float
+    procesada: str
+    original: str
+    fecha: str
+    hora: str
+
+
+class StatisticsResponse(BaseModel):
+    detections: int
+    not_detections: int
+    date: Optional[str] = None
+    user_id: Optional[int] = None
