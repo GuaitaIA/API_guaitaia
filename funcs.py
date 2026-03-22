@@ -1,200 +1,314 @@
-# Importaciones de librerías estándar de Python
-import json  # Para manejar datos en formato JSON
-import os  # Para interactuar con el sistema operativo
-from datetime import datetime  # Para manejar fechas y horas
-import uuid  # Para generar IDs únicos
-from typing import List, Tuple, Any  # Para tipado estático
-from io import BytesIO  # Para manejo de operaciones de entrada y salida basadas en bytes
+import asyncio
+import base64
+import ipaddress
+import os
+import shutil
+import socket
+import tempfile
+import uuid
+from datetime import datetime
+from io import BytesIO
+from typing import Any
+from urllib.parse import urlparse
 
-# Importaciones para manejo de imágenes
-import cv2  # Para operaciones de visión por computadora
-from PIL import Image  # Para manejo de imágenes
-import base64  # Para decodificar base64
-
-# Importaciones de terceros
-from ultralytics import YOLO  # Librería de detección de objetos YOLO
-import requests  # Para realizar peticiones HTTP
-
-# Importaciones de manejo de archivos temporales
-import tempfile  # Para la creación de archivos temporales
-import shutil  # Para operaciones de manejo de archivos de alto nivel
-
-# Importaciones de manejo de variables de entorno
-# Para cargar las variables de entorno del archivo .env
+import cv2
+import requests
 from dotenv import load_dotenv
+from fastapi import HTTPException
+from PIL import Image
 
-# Importaciones locales o personalizadas
-import models as mod  # Módulo local para base de datos
-import utils  # Módulo local de utilidades
+import models as mod
+import utils
 
-# Carga de variables de entorno desde un archivo .env
 load_dotenv()
 
+MODEL_EXTENSIONS = {".engine", ".onnx", ".pt", ".pth"}
+MAX_DOWNLOAD_SIZE = 50 * 1024 * 1024
+WEBP_QUALITY = int(os.getenv("WEBP_QUALITY", "80"))
 
-# Cargar el modelo YOLO
-try:
-    model = YOLO(os.getenv("MODELO"))
-except Exception as e:
-    raise Exception(f"Error al cargar el modelo: {e}")
-
-
-# Constantes para la calidad de imagen WEBP
-WEBP_QUALITY = int(os.getenv("WEBP_QUALITY"))
+loaded_models: dict[str, Any] = {}
+model_load_errors: dict[str, str] = {}
 
 
-async def procesar_imagen_multiple(imagenes: List[Any], confianza: float, iou: float, cpu: int, current_user: mod.User) -> Tuple[List[bool], List[float], List[str]]:
-    """
-    Procesa múltiples imágenes para detección de objetos.
+def get_model_directory() -> str:
+    configured_model = os.getenv("MODELO")
+    if configured_model:
+        configured_path = configured_model
+        if not os.path.isabs(configured_path):
+            configured_path = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), configured_path)
+            )
 
-    Args:
-    - imagenes: Lista de imágenes en diferentes formatos (URL, base64, archivo).
-    - confianza: Umbral de confianza para la detección de objetos.
-    - iou: Umbral de Intersection Over Union para la detección.
-    - cpu: Flag para indicar si se utiliza la CPU o no.
-    - current_user: Objeto de usuario actual.
+        model_dir = os.path.dirname(configured_path)
+        if os.path.isdir(model_dir):
+            return model_dir
 
-    Returns:
-    - Una tupla de listas con booleans de detección, confianzas y nombres de imágenes procesadas.
-    """
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "model"))
 
-    # Inicialización de contadores para estadísticas de detección
-    countDetections = 0
-    countNotDetections = 0
-    processed_image_names = []
 
-    # Usar un directorio temporal para trabajar con las imágenes
+def get_available_models() -> list[dict[str, str]]:
+    model_dir = get_model_directory()
+    if not os.path.isdir(model_dir):
+        return []
+
+    models = []
+    for file_name in sorted(os.listdir(model_dir)):
+        file_path = os.path.join(model_dir, file_name)
+        _, extension = os.path.splitext(file_name)
+        if not os.path.isfile(file_path) or extension.lower() not in MODEL_EXTENSIONS:
+            continue
+        models.append({"name": file_name, "path": file_path})
+
+    return models
+
+
+def get_default_model_name() -> str | None:
+    configured_model = os.getenv("MODELO")
+    if configured_model:
+        configured_name = os.path.basename(configured_model)
+        available_model_names = {model["name"] for model in get_available_models()}
+        if configured_name in available_model_names:
+            return configured_name
+
+    available_models = get_available_models()
+    if not available_models:
+        return None
+
+    return available_models[0]["name"]
+
+
+def get_model_path(model_name: str | None = None) -> tuple[str, str]:
+    selected_model_name = model_name or get_default_model_name()
+    if not selected_model_name:
+        raise RuntimeError(f"No se encontraron modelos en {get_model_directory()!r}")
+
+    for model_info in get_available_models():
+        if model_info["name"] == selected_model_name:
+            return model_info["path"], model_info["name"]
+
+    raise RuntimeError(f"No se encontro el modelo seleccionado: {selected_model_name}")
+
+
+def get_model(model_name: str | None = None):
+    model_path, normalized_model_name = get_model_path(model_name)
+
+    if normalized_model_name in loaded_models:
+        return loaded_models[normalized_model_name]
+
+    if normalized_model_name in model_load_errors:
+        raise RuntimeError(model_load_errors[normalized_model_name])
+
+    try:
+        from ultralytics import YOLO
+
+        loaded_models[normalized_model_name] = YOLO(model_path)
+        return loaded_models[normalized_model_name]
+    except Exception as exc:
+        model_load_errors[normalized_model_name] = (
+            f"Error al cargar el modelo {normalized_model_name}: {exc}"
+        )
+        raise RuntimeError(model_load_errors[normalized_model_name]) from exc
+
+
+def validate_image_url(url: str) -> bool:
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise HTTPException(status_code=400, detail="URL no permitida: esquema invalido")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise HTTPException(status_code=400, detail="URL no permitida: hostname vacio")
+
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="URL no permitida: no se pudo resolver el hostname",
+        ) from exc
+
+    for addr_info in addr_infos:
+        ip = ipaddress.ip_address(addr_info[4][0])
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="URL no permitida: direccion IP restringida",
+            )
+
+    return True
+
+
+async def procesar_imagen_multiple(
+    imagenes: list[Any],
+    confianza: float,
+    iou: float,
+    cpu: int,
+    current_user: mod.User,
+    model_name: str | None = None,
+) -> list[dict[str, Any]]:
+    count_detections = 0
+    count_not_detections = 0
+    processed_image_names: list[str] = []
+
     with tempfile.TemporaryDirectory() as temp_dir:
         for imagen in imagenes:
             image_path = await process_image_input(imagen, temp_dir)
             processed_image_names.append(os.path.basename(image_path))
 
-        # Determinar el dispositivo de procesamiento basado en la entrada del usuario
         device = "cpu" if cpu == 1 else 0
+        yolo_model = get_model(model_name)
+        predictions = await asyncio.to_thread(
+            yolo_model.predict,
+            temp_dir,
+            conf=confianza,
+            iou=iou,
+            save=True,
+            project="./",
+            name="Resultados",
+            exist_ok=True,
+            device=device,
+            imgsz=(800, 480),
+            augment=True,
+        )
 
-        # Llamada al modelo de predicción con las imágenes procesadas
-        predictions = model.predict(temp_dir, conf=confianza, iou=iou, save=True, project="./",
-                                    name="Resultados", exist_ok=True, device=device, imgsz=(800, 480), augment=True)
-
-        # Lista para almacenar los resultados de las detecciones
         detecciones = []
-
         for index, prediction in enumerate(predictions):
-            deteccion, conf = await process_prediction(prediction, temp_dir, processed_image_names[index])
+            deteccion, conf = await process_prediction(
+                prediction, temp_dir, processed_image_names[index]
+            )
+            now = datetime.now()
+
             if deteccion:
-                countDetections += 1
-                
-                original = "original_" + \
-                processed_image_names[index] + ".webp"
-                procesada = processed_image_names[index] + ".webp"
-                await utils.insert_detection(current_user, datetime.now(), original, procesada, conf)
+                count_detections += 1
+                original = f"original_{processed_image_names[index]}.webp"
+                procesada = f"{processed_image_names[index]}.webp"
+                await utils.insert_detection(current_user, now, original, procesada, conf)
             else:
-                countNotDetections += 1
+                count_not_detections += 1
 
-            detecciones.append({
-                "detection": deteccion,
-                "conf": float(conf) if deteccion else None,
-                "procesada": processed_image_names[index] + ".webp" if deteccion else None,
-                "original": "original_" + processed_image_names[index] + ".webp" if deteccion else None,
-                "fecha": str(datetime.now().date().isoformat()),
-                "hora": str(datetime.now().time().isoformat()) if deteccion else None
-            })
+            detecciones.append(
+                {
+                    "detection": deteccion,
+                    "conf": float(conf) if deteccion else None,
+                    "procesada": f"{processed_image_names[index]}.webp" if deteccion else None,
+                    "original": f"original_{processed_image_names[index]}.webp" if deteccion else None,
+                    "fecha": now.date().isoformat(),
+                    "hora": now.time().isoformat() if deteccion else None,
+                }
+            )
 
-        # Registrar los resultados en la base de datos
-        await utils.insert_results(current_user, 'multiples', countDetections, countNotDetections)
+        await utils.insert_results(
+            current_user,
+            "multiples",
+            count_detections,
+            count_not_detections,
+        )
+        return detecciones
 
-        # Convertir la lista 'detecciones' en una cadena JSON
-        return json.dumps(detecciones)
 
-
-async def process_image_input(imagen, temp_dir):
-    """
-    Procesa la entrada de la imagen para determinar si es una URL, una cadena base64 o un archivo.
-    Guarda la imagen en un directorio temporal en formato WEBP.
-
-    Args:
-    - imagen: La imagen a procesar.
-    - temp_dir: El directorio temporal donde se guardará la imagen.
-
-    Returns:
-    - La ruta al archivo de la imagen procesada.
-    """
+async def process_image_input(imagen: Any, temp_dir: str) -> str:
     try:
-        if isinstance(imagen, str) and imagen.startswith('http'):
-            # Si es una URL, descargar y guardar la imagen
-            if utils.es_extension_permitida(imagen):
-                response = requests.get(imagen)
-                image_path = os.path.join(temp_dir, os.path.basename(imagen))
+        if isinstance(imagen, str) and imagen.startswith("http"):
+            validate_image_url(imagen)
+            if not utils.es_extension_permitida(imagen):
+                raise ValueError(
+                    "La URL no corresponde a una imagen con extension permitida."
+                )
+
+            response = await asyncio.to_thread(requests.get, imagen, timeout=15)
+            response.raise_for_status()
+
+            if len(response.content) > MAX_DOWNLOAD_SIZE:
+                raise ValueError("La imagen descargada excede el limite de 50MB.")
+
+            ext = os.path.splitext(urlparse(imagen).path)[1].lower() or ".jpg"
+            image_path = os.path.join(temp_dir, f"{uuid.uuid4().hex}{ext}")
+
+            def _write_downloaded_file() -> None:
                 with open(image_path, "wb") as buffer:
                     buffer.write(response.content)
-            else:
-                raise ValueError(
-                    "La URL no corresponde a una imagen con extensión permitida.")
 
-        elif isinstance(imagen, str) and not imagen.startswith('http'):
-            # Si es una cadena base64, decodificar y guardar la imagen
+            await asyncio.to_thread(_write_downloaded_file)
+            return image_path
+
+        if isinstance(imagen, str):
             image_data = base64.b64decode(imagen)
             image = Image.open(BytesIO(image_data))
-            image_filename = f"image_{uuid.uuid4()}.webp"
+            image_filename = f"image_{uuid.uuid4().hex}.webp"
             image_path = os.path.join(temp_dir, image_filename)
-            image.save(image_path, 'WEBP')
-        else:
-            # Si es un archivo, validar y copiar al directorio temporal
-            if utils.validar_extension(imagen.filename):
-                image_path = os.path.join(temp_dir, imagen.filename)
-                with open(image_path, "wb") as buffer:
-                    shutil.copyfileobj(imagen.file, buffer)
-            else:
-                raise ValueError("Formato de imagen no soportado.")
+            await asyncio.to_thread(image.save, image_path, "WEBP")
+            return image_path
+
+        if not utils.validar_extension(imagen.filename):
+            raise ValueError("Formato de imagen no soportado.")
+
+        original_ext = os.path.splitext(os.path.basename(imagen.filename))[1].lower()
+        safe_filename = f"{uuid.uuid4().hex}{original_ext}"
+        image_path = os.path.join(temp_dir, safe_filename)
+
+        def _copy_file() -> None:
+            with open(image_path, "wb") as buffer:
+                shutil.copyfileobj(imagen.file, buffer)
+
+        await asyncio.to_thread(_copy_file)
         return image_path
-    except Exception as e:
-        raise Exception(f"Error al procesar la entrada de imagen: {e}")
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise Exception(f"Error al procesar la entrada de imagen: {exc}") from exc
 
 
-async def process_prediction(prediction, temp_dir, image_name):
-    """
-    Procesa la predicción hecha por el modelo para cada imagen.
-
-    Args:
-    - prediction: La predicción retornada por el modelo.
-    - temp_dir: El directorio temporal donde se guarda la imagen original.
-    - image_name: El nombre de la imagen procesada.
-
-    Returns:
-    - Un booleano que indica si hubo detección y la confianza de la detección.
-    """
+async def process_prediction(
+    prediction: Any,
+    temp_dir: str,
+    image_name: str,
+) -> tuple[bool, float | None]:
     try:
         boxes = prediction.boxes.cpu().numpy()
-        if boxes.conf.size > 0:
-            # Si hay detección, procesar y guardar la imagen resultante
-            conf = round(boxes.conf[0], 2)
-            await save_processed_images(temp_dir, image_name)
-            return True, conf
-        else:
-            # Si no hay detección, retornar False
+        if boxes.conf.size == 0:
             return False, None
-    except Exception as e:
-        raise Exception(f"Error al procesar la predicción: {e}")
+
+        conf = round(float(boxes.conf.max()), 2)
+        await save_processed_images(temp_dir, image_name)
+        return True, conf
+    except Exception as exc:
+        raise Exception(f"Error al procesar la prediccion: {exc}") from exc
 
 
-async def save_processed_images(temp_dir, image_name):
-    """
-    Guarda las imágenes originales y procesadas en formato WEBP.
-
-    Args:
-    - temp_dir: El directorio temporal donde se guardan las imágenes.
-    - image_name: El nombre de la imagen procesada.
-    """
+async def save_processed_images(temp_dir: str, image_name: str) -> None:
     try:
-        # Guardar la imagen original
-        image = cv2.imread(os.path.join(temp_dir, image_name))
-        cv2.imwrite(os.path.join("./", "Original", f"original_{image_name}.webp"), image, [
-                    cv2.IMWRITE_WEBP_QUALITY, WEBP_QUALITY])
+        os.makedirs("./Original", exist_ok=True)
+        os.makedirs("./Resultados", exist_ok=True)
 
-        # Guardar la imagen procesada
-        processed_image = cv2.imread(
-            os.path.join("./", "Resultados", image_name))
-        cv2.imwrite(os.path.join("./", "Resultados",
-                    f"{image_name}.webp"), processed_image, [cv2.IMWRITE_WEBP_QUALITY, WEBP_QUALITY])
-        os.remove(os.path.join("./", "Resultados", image_name))
-    except Exception as e:
-        raise Exception(f"Error al guardar las imágenes: {e}")
+        original_input = os.path.join(temp_dir, image_name)
+        original_output = os.path.join("./Original", f"original_{image_name}.webp")
+
+        processed_input = os.path.join("./Resultados", image_name)
+        processed_output = os.path.join("./Resultados", f"{image_name}.webp")
+
+        original_image = await asyncio.to_thread(cv2.imread, original_input)
+        await asyncio.to_thread(
+            cv2.imwrite,
+            original_output,
+            original_image,
+            [cv2.IMWRITE_WEBP_QUALITY, WEBP_QUALITY],
+        )
+
+        processed_image = await asyncio.to_thread(cv2.imread, processed_input)
+        await asyncio.to_thread(
+            cv2.imwrite,
+            processed_output,
+            processed_image,
+            [cv2.IMWRITE_WEBP_QUALITY, WEBP_QUALITY],
+        )
+
+        if os.path.exists(processed_input):
+            os.remove(processed_input)
+    except Exception as exc:
+        raise Exception(f"Error al guardar las imagenes: {exc}") from exc

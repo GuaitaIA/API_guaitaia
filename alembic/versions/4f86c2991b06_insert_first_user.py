@@ -23,7 +23,7 @@ def upgrade() -> None:
     op.execute(
         """
         INSERT INTO users (email, hashed_password, is_active, role)
-        VALUES ('admin@admin.com', '$2y$10$zkTtwVcNw8MJB4theDKvEeER.DarFqzqjyAyqUHLMAmdor5tfjBlu', true, 'superadmin')
+        VALUES ('admin@admin.com', '$2b$12$NFI.tfHVOK/G1lQg1it3beUuzckb21dUhoogvK5zEQZ7yBd2WnNxW', true, 'superadmin')
         """
     )
 

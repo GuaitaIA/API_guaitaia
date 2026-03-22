@@ -6,25 +6,25 @@ services:
     container_name: local_pgdb
     restart: always
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5433:5432"
     environment:
-      POSTGRES_USER: guaitaiauser
-      POSTGRES_PASSWORD: clUWpt50yB1edaF
-      POSTGRES_DB: guaitaiadb
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-guaitaia}
     volumes:
       - local_pgdata:/var/lib/postgresql/data
     networks:
       - guaitaia-vlan
-      
+
   pgadmin:
     image: dpage/pgadmin4
     container_name: pgadmin4_container
     restart: always
     ports:
-      - "8888:80"
+      - "127.0.0.1:8888:80"
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: xoYU7a6GWy6Pb8p
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@admin.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-xoYU7a6GWy6Pb8p}
     volumes:
       - pgadmin-data:/var/lib/pgadmin
     networks:
@@ -33,8 +33,6 @@ services:
 volumes:
   local_pgdata:
   pgadmin-data:
-  
-
 
 networks:
   guaitaia-vlan:
