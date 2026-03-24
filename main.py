@@ -35,6 +35,14 @@ tags_metadata = [
         "description": "Operaciones para crear y actualizar usuarios.",
     },
     {
+        "name": "Roles",
+        "description": "Gestion de la jerarquia de roles del sistema.",
+    },
+    {
+        "name": "Settings",
+        "description": "Ajustes personales del usuario autenticado.",
+    },
+    {
         "name": "Wildfire detection",
         "description": "Procesar imagenes y vectores en formato base64 para la deteccion de incendios.",
     },
@@ -45,6 +53,10 @@ tags_metadata = [
     {
         "name": "Results",
         "description": "Obtener los resultados de las detecciones de incendios.",
+    },
+    {
+        "name": "Notifications",
+        "description": "Consultar y marcar notificaciones de detecciones.",
     },
 ]
 
@@ -147,6 +159,86 @@ async def get_zones(
         ) from exc
 
 
+@app.get(
+    "/roles",
+    response_model=List[mod.RoleHierarchyResponse],
+    tags=["Roles"],
+    summary="List Role Hierarchy",
+    description="Devuelve la jerarquia de roles disponible para la administracion de usuarios.",
+)
+async def get_roles(
+    current_user: Annotated[mod.User, Depends(utils.get_current_user_is_superadmin)]
+):
+    try:
+        return await utils.get_roles(current_user)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al obtener los roles: {exc}",
+        ) from exc
+
+
+@app.post("/roles", tags=["Roles"])
+async def create_role(
+    current_user: Annotated[mod.User, Depends(utils.get_current_user_is_superadmin)],
+    name: str = Form(...),
+    description: Optional[str] = Form(default=None),
+    parent_id: Optional[int] = Form(default=None),
+):
+    try:
+        await utils.create_role(current_user, name, description, parent_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al crear el rol: {exc}",
+        ) from exc
+
+    return {"status": "success"}
+
+
+@app.put("/roles/{role_id}", tags=["Roles"])
+async def update_role(
+    current_user: Annotated[mod.User, Depends(utils.get_current_user_is_superadmin)],
+    role_id: int,
+    name: str = Form(...),
+    description: Optional[str] = Form(default=None),
+    parent_id: Optional[int] = Form(default=None),
+):
+    try:
+        await utils.update_role(current_user, role_id, name, description, parent_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al actualizar el rol: {exc}",
+        ) from exc
+
+    return {"status": "success"}
+
+
+@app.delete("/roles/{role_id}", tags=["Roles"])
+async def delete_role(
+    current_user: Annotated[mod.User, Depends(utils.get_current_user_is_superadmin)],
+    role_id: int,
+):
+    try:
+        await utils.delete_role(current_user, role_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al eliminar el rol: {exc}",
+        ) from exc
+
+    return {"status": "success"}
+
+
 @app.post("/user/create", tags=["User"])
 async def create_user(
     current_user: Annotated[mod.User, Depends(utils.get_current_user_is_superadmin)],
@@ -231,6 +323,86 @@ async def update_password(
         raise HTTPException(
             status_code=500,
             detail=f"Error al actualizar la contrasena: {exc}",
+        ) from exc
+
+    return {"status": "success"}
+
+
+@app.get(
+    "/settings/notifications",
+    response_model=mod.NotificationSettingsResponse,
+    tags=["Settings"],
+)
+async def get_notification_settings(
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)]
+):
+    try:
+        return await utils.get_notification_settings(current_user)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al obtener los ajustes: {exc}",
+        ) from exc
+
+
+@app.patch(
+    "/settings/notifications",
+    response_model=mod.NotificationSettingsResponse,
+    tags=["Settings"],
+)
+async def update_notification_settings(
+    payload: mod.NotificationSettingsUpdate,
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
+):
+    try:
+        return await utils.update_notification_settings(
+            current_user,
+            payload.notifications_enabled,
+            payload.notification_sound_enabled,
+        )
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al actualizar los ajustes: {exc}",
+        ) from exc
+
+
+@app.get(
+    "/notifications/unread",
+    response_model=List[mod.NotificationResponse],
+    tags=["Notifications"],
+)
+async def get_unread_notifications(
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)]
+):
+    try:
+        return await utils.get_unread_notifications(current_user)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al obtener las notificaciones: {exc}",
+        ) from exc
+
+
+@app.patch("/notifications/read", tags=["Notifications"])
+async def mark_notifications_as_read(
+    payload: mod.NotificationReadRequest,
+    current_user: Annotated[mod.User, Depends(utils.get_current_active_user)],
+):
+    try:
+        await utils.mark_notifications_as_read(current_user, payload.ids)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Error al actualizar las notificaciones: {exc}",
         ) from exc
 
     return {"status": "success"}

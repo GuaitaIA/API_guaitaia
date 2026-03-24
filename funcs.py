@@ -1,5 +1,6 @@
 import asyncio
 import base64
+import glob
 import ipaddress
 import os
 import shutil
@@ -179,16 +180,20 @@ async def procesar_imagen_multiple(
 
         detecciones = []
         for index, prediction in enumerate(predictions):
-            deteccion, conf = await process_prediction(
+            deteccion, conf, original_file_name, processed_file_name = await process_prediction(
                 prediction, temp_dir, processed_image_names[index]
             )
             now = datetime.now()
 
             if deteccion:
                 count_detections += 1
-                original = f"original_{processed_image_names[index]}.webp"
-                procesada = f"{processed_image_names[index]}.webp"
-                await utils.insert_detection(current_user, now, original, procesada, conf)
+                await utils.insert_detection(
+                    current_user,
+                    now,
+                    original_file_name,
+                    processed_file_name,
+                    conf,
+                )
             else:
                 count_not_detections += 1
 
@@ -196,8 +201,8 @@ async def procesar_imagen_multiple(
                 {
                     "detection": deteccion,
                     "conf": float(conf) if deteccion else None,
-                    "procesada": f"{processed_image_names[index]}.webp" if deteccion else None,
-                    "original": f"original_{processed_image_names[index]}.webp" if deteccion else None,
+                    "procesada": processed_file_name if deteccion else None,
+                    "original": original_file_name if deteccion else None,
                     "fecha": now.date().isoformat(),
                     "hora": now.time().isoformat() if deteccion else None,
                 }
@@ -268,29 +273,52 @@ async def process_prediction(
     prediction: Any,
     temp_dir: str,
     image_name: str,
-) -> tuple[bool, float | None]:
+) -> tuple[bool, float | None, str | None, str | None]:
     try:
         boxes = prediction.boxes.cpu().numpy()
         if boxes.conf.size == 0:
-            return False, None
+            return False, None, None, None
 
         conf = round(float(boxes.conf.max()), 2)
-        await save_processed_images(temp_dir, image_name)
-        return True, conf
+        original_file_name, processed_file_name = await save_processed_images(
+            temp_dir,
+            image_name,
+            prediction.save_dir,
+        )
+        return True, conf, original_file_name, processed_file_name
     except Exception as exc:
         raise Exception(f"Error al procesar la prediccion: {exc}") from exc
 
 
-async def save_processed_images(temp_dir: str, image_name: str) -> None:
+def find_processed_image_path(save_dir: str, image_name: str) -> str:
+    image_stem, _ = os.path.splitext(image_name)
+    matching_files = sorted(glob.glob(os.path.join(save_dir, f"{image_stem}.*")))
+    if not matching_files:
+        raise FileNotFoundError(
+            f"No se encontro la imagen procesada para {image_name!r} en {save_dir!r}"
+        )
+
+    return matching_files[0]
+
+
+async def save_processed_images(
+    temp_dir: str,
+    image_name: str,
+    save_dir: str,
+) -> tuple[str, str]:
     try:
         os.makedirs("./Original", exist_ok=True)
         os.makedirs("./Resultados", exist_ok=True)
 
+        image_stem, _ = os.path.splitext(image_name)
         original_input = os.path.join(temp_dir, image_name)
-        original_output = os.path.join("./Original", f"original_{image_name}.webp")
+        processed_input = find_processed_image_path(save_dir, image_name)
 
-        processed_input = os.path.join("./Resultados", image_name)
-        processed_output = os.path.join("./Resultados", f"{image_name}.webp")
+        original_file_name = f"original_{image_stem}.webp"
+        processed_file_name = f"{image_stem}.webp"
+
+        original_output = os.path.join("./Original", original_file_name)
+        processed_output = os.path.join("./Resultados", processed_file_name)
 
         original_image = await asyncio.to_thread(cv2.imread, original_input)
         await asyncio.to_thread(
@@ -310,5 +338,6 @@ async def save_processed_images(temp_dir: str, image_name: str) -> None:
 
         if os.path.exists(processed_input):
             os.remove(processed_input)
+        return original_file_name, processed_file_name
     except Exception as exc:
         raise Exception(f"Error al guardar las imagenes: {exc}") from exc
